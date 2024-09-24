@@ -1,0 +1,19 @@
+[project]
+name = "osl-foundation"
+version = "0.0.1"
+authors = [
+    { name = "Rukuang Huang", email = "rukuang.huang@jesus.ox.ac.uk" },
+    { name = "Mark Woolrich", email = "mark.woolrich@ohba.ox.ac.uk" },
+]
+description = "Foundation models for electrophysiological data analysis developed by OHBA Analysis Group"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Linux",
+]
+
+[project.urls]
+Homepage = "https://github.com/OHBA-analysis/osl-foundation"
+Issues = "https://github.com/OHBA-analysis/osl-foundation/issues"
