@@ -1,16 +1,33 @@
 from abc import abstractmethod
-from contextlib import contextmanager
+from typing import Union, List
+import logging
 
 import tensorflow as tf
 import numpy as np
+import matplotlib.pyplot as plt
 
+from osl_dynamics.inference import initializers as osld_initializers
 from osl_dynamics.utils.misc import get_argument, replace_argument
-from osl_foundation.config.base import BaseConfig
+
+from osl_foundation.config import Config
+from osl_foundation.data.base import Data
+
+_logger = logging.getLogger("osl-foundation")
 
 
 # Class for base model
 class BaseModel:
-    def __init__(self, config: BaseConfig):
+    """
+    Base class for models.
+
+    Parameters
+    ----------
+    config : Config
+        Configuration object.
+    """
+
+    def __init__(self, config: Config):
+        config.validate()
         self._identifier = np.random.randint(100000)
         self.config = config
         self.model: tf.keras.Model = None
@@ -20,14 +37,114 @@ class BaseModel:
 
     @abstractmethod
     def build_model(self) -> None:
+        """Abstract method to build the model"""
         pass
 
     def compile(self) -> None:
-        self.model.compile(
-            optimizer=self.config.training_config.optimizer,
-        )
+        """Compile the model with the optimizer within the strategy scope."""
+        with self.config.training_config.strategy.scope():
+            self.model.compile(
+                optimizer=self.config.training_config.optimizer,
+            )
 
-    def fit(self, *args, **kwargs) -> tf.keras.callbacks.History:
+    def make_dataset(
+        self,
+        inputs,
+        shuffle=False,
+        concatenate=False,
+        step_size=None,
+        drop_last_batch=False,
+    ) -> Union[tf.data.Dataset, List[tf.data.Dataset]]:
+        """
+        Make a TensorFlow Dataset from an osl-dynamics Data object.
+
+        Parameters
+        ----------
+        inputs : osl_dynamics.data.Data or str or np.ndarray
+            Data object. If a :code:`str` or :np.ndarray: is passed this
+            function will first convert it into a Data object.
+        shuffle : bool, optional
+            Should we shuffle the data?
+        concatenate : bool, optional
+            Should we return a single TensorFlow Dataset or a list of Datasets.
+        step_size : int, optional
+            Number of samples to slide the sequence across the dataset.
+            Default is no overlap.
+        drop_last_batch : bool, optional
+            Should we drop the last batch if it is smaller than the batch size?
+
+        Returns
+        -------
+        dataset : tf.data.Dataset or List[tf.data.Dataset]
+            TensorFlow Dataset (or list of Datasets) that can be used for
+            training/evaluating.
+        """
+        if isinstance(inputs, str) or isinstance(inputs, np.ndarray):
+            # str or numpy array -> Data object
+            inputs = Data(inputs)
+
+        if isinstance(inputs, Data):
+            # Validation
+            if (
+                isinstance(
+                    self.config.training_config.strategy, tf.distribute.MirroredStrategy
+                )
+                and not inputs.use_tfrecord
+            ):
+                _logger.warning(
+                    "Using a multiple GPUs with a non-TFRecord dataset. "
+                    + "This will result in poor performance. "
+                    + "Consider using a TFRecord dataset with Data(..., use_tfrecord=True)."
+                )
+
+            # Data object -> list of Dataset if concatenate=False
+            # or Data object -> Dataset if concatenate=True
+            if inputs.use_tfrecord:
+                outputs = inputs.tfrecord_dataset(
+                    self.config.model_config.sequence_length,
+                    self.config.training_config.batch_size,
+                    shuffle=shuffle,
+                    concatenate=concatenate,
+                    step_size=step_size,
+                    drop_last_batch=drop_last_batch,
+                )
+            else:
+                outputs = inputs.dataset(
+                    self.config.model_config.sequence_length,
+                    self.config.training_config.batch_size,
+                    shuffle=shuffle,
+                    concatenate=concatenate,
+                    step_size=step_size,
+                    drop_last_batch=drop_last_batch,
+                )
+
+        elif isinstance(inputs, tf.data.Dataset) and not concatenate:
+            # Dataset -> list of Dataset if concatenate=False
+            outputs = [inputs]
+
+        else:
+            outputs = inputs
+
+        return outputs
+
+    def fit(self, *args, **kwargs) -> None:
+        """Wrapper for the standard keras fit method.
+
+        Adds callbacks and then trains the model.
+
+        Parameters
+        ----------
+        args : arguments
+            Arguments for :code:`tf.keras.Model.fit()`.
+        kwargs : keyword arguments, optional
+            Keyword arguments for :code:`tf.keras.Model.fit()`.
+        """
+        # If a osl_dynamics.data.Data object has been passed for the x
+        # arguments, replace it with a tensorflow dataset
+        x = get_argument(self.model.fit, "x", args, kwargs)
+        x = self.make_dataset(x, shuffle=True, concatenate=True, drop_last_batch=True)
+        args, kwargs = replace_argument(self.model.fit, "x", x, args, kwargs)
+
         # Use the number of epochs in the config if it has not been passed
         if get_argument(self.model.fit, "epochs", args, kwargs) is None:
             args, kwargs = replace_argument(
@@ -48,28 +165,86 @@ class BaseModel:
             append=True,
         )
 
-        return self.model.fit(*args, **kwargs)
+        self.model.fit(*args, **kwargs)
 
-    def load_weights(self, filepath: str) -> None:
+    def load_weights(self, filepath: str) -> tf.keras.Model:
+        """Load weights from a file.
+        This is a wrapper of :code:`tf.keras.Model.load_weights()`.
+
+        Parameters
+        ----------
+        filepath : str
+            Path to the weights file.
+
+        Returns
+        -------
+        model : tf.keras.Model
+            Model with the loaded weights.
+        """
         with self.config.training_config.strategy.scope():
-            self.model.load_weights(filepath)
+            return self.model.load_weights(filepath)
 
     def reset_weights(self, keep: list = None) -> None:
-        pass
+        """Reset the weights of the model.
+
+        Parameters
+        ----------
+        keep : list, optional
+            List of names of layers to keep the weights of.
+        """
+        with self.config.training_config.strategy.scope():
+            osld_initializers.reinitialize_model_weights(self.model, keep=keep)
 
     def reset(self) -> None:
+        """Reset the model and compile it."""
         self.reset_weights()
-        self.compile()
+        with self.config.training_config.strategy.scope():
+            self.compile()
 
-    def make_dataset():
-        pass
+    def save_config(self, dirname: str) -> None:
+        """
+        Save the config to a directory.
+        The config is saved as a YAML file as 'config.yml'.
 
-    def save_config(self):
-        pass
+        Parameters
+        ----------
+        dirname : str
+            Directory to save the configuration.
+        """
+        self.config.save_config(dirname)
 
-    def save(self):
-        pass
+    def save(self, dirname: str) -> None:
+        """
+        Save the model config and weights to a directory.
 
-    @contextmanager
-    def set_trainable(self):
-        pass
+        Parameters
+        ----------
+        dirname : str
+            Directory to save the model.
+        """
+
+        self.save_config(dirname)
+        self.model.save_weights(f"{dirname}/weights")
+
+    def plot_history(self, plot_dir: str = None) -> None:
+        """Plot the training history.
+
+        Parameters
+        ----------
+        plot_dir : str, optional
+            Directory to save the plot.
+        """
+        history = self.model.history.history
+        fig, ax = plt.subplots(figsize=(12, 6))
+        for key in history.keys():
+            ax.plot(history[key], label=key)
+        ax.legend()
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel("Value")
+        ax.set_title("Training History")
+        if plot_dir is not None:
+            fig.savefig(f"{plot_dir}/history.png")
+
+    def summary(self, **kwargs) -> None:
+        """Print a summary of the model."""
+        self.model.summary(**kwargs)

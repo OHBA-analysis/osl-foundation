@@ -17,6 +17,8 @@ else:
 
 @dataclass
 class BaseTrainingConfig:
+    """Base class for training configuration."""
+
     optimizer: tf.keras.optimizers.Optimizer = None
     batch_size: int = None
     n_epochs: int = None
@@ -73,28 +75,3 @@ class BaseModelConfig:
 
     def get_config(self) -> dict:
         return {"name": self.name, "sequence_length": self.sequence_length}
-
-
-# Abstract class for base configuration
-@dataclass
-class BaseConfig:
-    model_config: BaseModelConfig = None
-    training_config: BaseTrainingConfig = None
-
-    def validate(self):
-        self.model_config.validate()
-        self.training_config.validate()
-
-    @abstractmethod
-    def set_model_config(self):
-        pass
-
-    @abstractmethod
-    def set_training_config(self):
-        pass
-
-    def get_config(self) -> dict:
-        return {
-            "model_config": self.model_config.get_config(),
-            "training_config": self.training_config.get_config(),
-        }
