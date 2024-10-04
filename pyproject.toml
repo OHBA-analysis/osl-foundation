@@ -2,7 +2,7 @@
 name = "osl-foundation"
 version = "0.0.1"
 authors = [
-    { name = "Rukuang Huang", email = "rukuang.huang@jesus.ox.ac.uk" },
+    { name = "Rukuang Huang", email = "rukuang.huang@psych.ox.ac.uk" },
     { name = "Mark Woolrich", email = "mark.woolrich@ohba.ox.ac.uk" },
 ]
 description = "Foundation models for electrophysiological data analysis developed by OHBA Analysis Group"

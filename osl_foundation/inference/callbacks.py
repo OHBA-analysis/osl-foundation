@@ -21,8 +21,8 @@ class TemperatureAnnealingCallback(tf.keras.callbacks.Callback):
         self,
         n_stages: int,
         n_epochs: int,
-        start_temperature: float = 0.0,
-        end_temperature: float = 1.0,
+        start_temperature: float = 1.0,
+        end_temperature: float = 0.0,
     ):
         self.n_stages = n_stages
         self.n_epochs = n_epochs

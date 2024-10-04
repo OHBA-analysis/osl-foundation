@@ -154,9 +154,9 @@ def get_training_config(config: dict) -> BaseTrainingConfig:
     if "temperature_annealing" in config:
         n_stages = config["temperature_annealing"]["n_stages"]
         start_temperature = config["temperature_annealing"].get(
-            "start_temperature", 0.0
+            "start_temperature", 1.0
         )
-        end_temperature = config["temperature_annealing"].get("end_temperature", 1.0)
+        end_temperature = config["temperature_annealing"].get("end_temperature", 0.0)
         callbacks.append(
             TemperatureAnnealingCallback(
                 n_stages=n_stages,
