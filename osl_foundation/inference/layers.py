@@ -331,3 +331,227 @@ class PASSTALayer(tf.keras.layers.Layer):
         )
 
         return output
+
+
+class MultiHeadPASSTALayer(tf.keras.layers.Layer):
+    def __init__(
+        self,
+        n_heads: int,
+        model_dim: int,
+        token_dim: int,
+        n_channels: int,
+        sequence_length: int,
+        latent_sequence_length: int,
+        n_patches: int,
+        patch_length: int,
+        unpatched_length: int,
+        channel_attention_dropout: float,
+        within_channel_attention_dropout: float,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.n_heads = n_heads
+        self.model_dim = model_dim
+        self.token_dim = token_dim
+        self.key_dim = model_dim // n_heads
+        self.n_channels = n_channels
+        self.sequence_length = sequence_length
+        self.latent_sequence_length = latent_sequence_length
+        self.n_patches = n_patches
+        self.patch_length = patch_length
+        self.unpatched_length = unpatched_length
+        self.channel_attention_dropout = channel_attention_dropout
+        self.within_channel_attention_dropout = within_channel_attention_dropout
+
+        # Patch projection
+        self.patch_projection = tf.keras.layers.Dense(1)
+
+        # Input projections
+        self.time_patched_projection = tf.keras.layers.Dense(2 * self.model_dim)
+        self.time_unpatched_projection = tf.keras.layers.Dense(2 * self.model_dim)
+        self.time_query_projection = tf.keras.layers.Dense(self.model_dim)
+        self.channel_projection = tf.keras.layers.Dense(2 * self.model_dim)
+
+        # PASSTA layer for time and channel attention
+        self.passta_layer = PASSTALayer(
+            n_channels,
+            latent_sequence_length,
+            n_patches,
+            patch_length,
+            unpatched_length,
+            self.key_dim,
+            channel_attention_dropout,
+            within_channel_attention_dropout,
+        )
+
+        # Output projection
+        self.output_projection = tf.keras.layers.Dense(self.model_dim)
+
+    def _patch_x(self, x: tf.Tensor[tf.float32]) -> tf.Tensor[tf.float32]:
+        # x.shape: (batch_size, sequence_length, n_channels, token_dim)
+
+        x = tf.transpose(x, perm=(0, 2, 3, 1))
+        # x.shape: (batch_size, n_channels, token_dim, sequence_length)
+
+        x = tf.reshape(
+            x,
+            (
+                tf.shape(x)[0],
+                self.n_channels,
+                self.token_dim,
+                self.n_patches,
+                self.patch_length,
+            ),
+        )
+        # x.shape: (batch_size, n_channels, token_dim, n_patches, patch_length)
+
+        x = tf.transpose(x, perm=(0, 3, 1, 2, 4))
+        # x.shape: (batch_size, n_patches, n_channels, token_dim, patch_length)
+
+        return x
+
+    def _perceiver_x(self, x: tf.Tensor[tf.float32]) -> tf.Tensor[tf.float32]:
+        """Get the last latent_sequence_length elements of the sequence."""
+        # x.shape: (batch_size, sequence_length, n_channels, token_dim)
+
+        x = tf.slice(
+            x,
+            [0, self.sequence_length - self.latent_sequence_length, 0, 0],
+            [-1, -1, -1, -1],
+        )
+        # x.shape: (batch_size, latent_sequence_length, n_channels, token_dim)
+
+        return x
+
+    def _unpatch_x(self, x: tf.Tensor[tf.float32]) -> tf.Tensor[tf.float32]:
+        """Get the last unpatched_length elements of the sequence."""
+        # x.shape: (batch_size, sequence_length, n_channels, token_dim)
+
+        x = tf.slice(
+            x,
+            [0, self.sequence_length - self.unpatched_length, 0, 0],
+            [-1, -1, -1, -1],
+        )
+        # x.shape: (batch_size, unpatched_length, n_channels, token_dim)
+
+        return x
+
+    def _split_heads(self, x: tf.Tensor[tf.float32]) -> tf.Tensor[tf.float32]:
+        # x.shape: (batch_size, time_length, n_channels, model_dim)
+        # Here time_length is either n_patches + unpatched_length or latent_sequence_length
+
+        x = tf.reshape(
+            x,
+            (
+                tf.shape(x)[0],
+                tf.shape(x)[1],
+                self.n_channels,
+                self.n_heads,
+                self.key_dim,
+            ),
+        )
+        # x.shape: (batch_size, time_length, n_channels, n_heads, key_dim)
+
+        x = tf.transpose(x, perm=(0, 3, 1, 2, 4))
+        # x.shape: (batch_size, n_heads, time_length, n_channels, key_dim)
+
+        return x
+
+    def _combine_heads(self, x: tf.Tensor[tf.float32]) -> tf.Tensor[tf.float32]:
+        # x.shape: (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
+
+        x = tf.transpose(x, perm=(0, 2, 3, 1, 4))
+        # x.shape: (batch_size, latent_sequence_length, n_channels, n_heads, key_dim)
+
+        x = tf.reshape(
+            x,
+            (
+                tf.shape(x)[0],
+                self.latent_sequence_length,
+                self.n_channels,
+                self.model_dim,
+            ),
+        )
+        # x.shape: (batch_size, latent_sequence_length, n_channels, model_dim)
+
+        return x
+
+    def call(self, inputs, training=None, **kwargs):
+        x = inputs
+        # x.shape: (batch_size, sequence_length, n_channels, token_dim)
+
+        # ---------- Process inputs ---------- #
+        # Input is processed into 3 parts:
+        # 1. Patched input: patche_x
+        # 2. Unpatched input: unpatched_x
+        # 3. Perceiver input: perceiver_x
+
+        patched_x = self._patch_x(x)
+        # patched_x.shape: (batch_size, n_patches, n_channels, token_dim, patch_length)
+
+        # Apply patch projection
+        patched_x = tf.squeeze(self.patch_projection(patched_x), axis=-1)
+        # patched_x.shape: (batch_size, n_patches, n_channels, token_dim)
+
+        perceiver_x = self._perceiver_x(x)
+        # perceiver_x.shape: (batch_size, latent_sequence_length, n_channels, token_dim)
+
+        unpatched_x = self._unpatch_x(x)
+        # unpatched_x.shape: (batch_size, unpatched_length, n_channels, token_dim)
+
+        # ---------- Project inputs to Q, K, V ---------- #
+        q = self.time_query_projection(perceiver_x)
+        # q.shape: (batch_size, latent_sequence_length, n_channels, model_dim)
+
+        k_patched, v_patched = tf.split(
+            self.time_patched_projection(patched_x), 2, axis=-1
+        )
+        # k_patched.shape: (batch_size, n_patches, n_channels, model_dim)
+        # v_patched.shape: (batch_size, n_patches, n_channels, model_dim)
+
+        k_unpatched, v_unpatched = tf.split(
+            self.time_unpatched_projection(unpatched_x), 2, axis=-1
+        )
+        # k_unpatched.shape: (batch_size, unpatched_length, n_channels, model_dim)
+        # v_unpatched.shape: (batch_size, unpatched_length, n_channels, model_dim)
+
+        # Concatenate k and v for time attention
+        k = tf.concat([k_patched, k_unpatched], axis=1)
+        v = tf.concat([v_patched, v_unpatched], axis=1)
+        # k.shape: (batch_size, n_patches + unpatched_length, n_channels, model_dim)
+        # v.shape: (batch_size, n_patches + unpatched_length, n_channels, model_dim)
+
+        c_q, c_k = tf.split(self.channel_projection(perceiver_x), 2, axis=-1)
+        # c_q.shape: (batch_size, latent_sequence_length, n_channels, model_dim)
+        # c_k.shape: (batch_size, latent_sequence_length, n_channels, model_dim)
+
+        # ---------- Split heads ---------- #
+
+        q = self._split_heads(q)
+        # (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
+
+        k = self._split_heads(k)
+        # (batch_size, n_heads, n_patches + unpatched_length, n_channels, key_dim)
+
+        v = self._split_heads(v)
+        # (batch_size, n_heads, n_patches + unpatched_length, n_channels, key_dim)
+
+        c_q = self._split_heads(c_q)
+        # (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
+
+        c_k = self._split_heads(c_k)
+        # (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
+
+        # ---------- PASSTA Layer ---------- #
+        output = self.passta_layer([q, k, v, c_q, c_k], training=training, **kwargs)
+        # output.shape: (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
+
+        # ---------- Combine heads ---------- #
+        output = self._combine_heads(output)
+        # output.shape: (batch_size, latent_sequence_length, n_channels, model_dim)
+
+        # ---------- Output projection ---------- #
+        output = self.output_projection(output)
+        # output.shape: (batch_size, latent_sequence_length, n_channels, model_dim)
+
+        return output
