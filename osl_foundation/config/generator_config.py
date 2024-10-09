@@ -87,6 +87,7 @@ class EphysGPTModelConfig(BaseModelConfig):
         assert self.patch_length > 0, "patch_length must be greater than 0"
         assert self.unpatched_length > 0, "unpatched_length must be greater than 0"
         assert self.feed_forward_dim > 0, "feed_forward_dim must be greater than 0"
+        assert self.n_groups is None or self.n_groups > 0
 
         assert (
             self.model_dim % self.n_heads == 0
@@ -94,6 +95,10 @@ class EphysGPTModelConfig(BaseModelConfig):
         assert (
             self.sequence_length == self.n_patches * self.patch_length
         ), "sequence_length must be equal to n_patches * patch_length"
+        if self.n_groups is not None:
+            assert (
+                self.model_dim % self.n_groups == 0
+            ), "model_dim must be divisible by n_groups"
 
     def _validate_loss_parameters(self) -> None:
         assert self.loss_sequence_length is not None, "loss_sequence_length must be set"
