@@ -19,6 +19,10 @@ def create_model(config: Config):
         from osl_foundation.models.tokenizers import OSLTokenizer
 
         return OSLTokenizer(config)
+    elif config.model_config.name == "ephys_gpt":
+        from osl_foundation.models.ephys_gpt import EphysGPT
+
+        return EphysGPT(config)
     else:
         raise ValueError(f"Model {config.model_config.name} not implemented.")
 

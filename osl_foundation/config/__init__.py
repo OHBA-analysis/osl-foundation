@@ -13,6 +13,7 @@ from osl_foundation.inference.callbacks import (
 )
 from osl_foundation.config.base import BaseTrainingConfig, BaseModelConfig
 from osl_foundation.config.tokenizer_config import OSLTokenizerModelConfig
+from osl_foundation.config.generator_config import EphysGPTModelConfig
 
 
 @dataclass
@@ -30,7 +31,11 @@ class Config:
         Dictionary representation of the config.
     """
 
-    model_config: Union[BaseModelConfig, OSLTokenizerModelConfig] = None
+    model_config: Union[
+        BaseModelConfig,
+        OSLTokenizerModelConfig,
+        EphysGPTModelConfig,
+    ] = None
     training_config: BaseTrainingConfig = None
     config_dict: dict = None
 
@@ -189,7 +194,9 @@ def get_training_config(config: dict) -> BaseTrainingConfig:
     return training_config
 
 
-def get_model_config(config: dict) -> Union[BaseModelConfig, OSLTokenizerModelConfig]:
+def get_model_config(
+    config: dict,
+) -> Union[BaseModelConfig, OSLTokenizerModelConfig, EphysGPTModelConfig]:
     """
     Get a model config object from a dictionary.
 
@@ -203,18 +210,28 @@ def get_model_config(config: dict) -> Union[BaseModelConfig, OSLTokenizerModelCo
     model_config : Union[BaseModelConfig, OSLTokenizerModelConfig]
         Model config object.
     """
+
+    # Helper functions
+    def _set_osl_tokenizer_config(model_config: OSLTokenizerModelConfig) -> None:
+        model_config.set_config(config)
+
+    def _set_ephys_gpt_config(model_config: EphysGPTModelConfig) -> None:
+        model_config.set_config(config)
+
     name = config.get("name", None)
     if name is None:
         raise ValueError("config must contain a 'name' key")
     elif name == "osl_tokenizer":
         model_config = OSLTokenizerModelConfig()
-        model_config.set_n_tokens(config.get("n_tokens", 16))
-        model_config.set_token_dim(config.get("token_dim", 32))
-        model_config.set_rnn_n_units(config.get("rnn_n_units", 64))
+        model_config.set_sequence_length(config.get("sequence_length", 256))
+        _set_osl_tokenizer_config(model_config)
+    elif name == "ephys_gpt":
+        model_config = EphysGPTModelConfig()
+        model_config.set_sequence_length(config.get("sequence_length", 256))
+        _set_ephys_gpt_config(model_config)
     else:
         raise NotImplementedError(f"Model config for {name} is not implemented")
 
     # Set sequence length
-    model_config.set_sequence_length(config.get("sequence_length", 256))
 
     return model_config

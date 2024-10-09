@@ -23,7 +23,7 @@ class OSLTokenizer(BaseModel):
     Parameters
     ----------
     config : Config
-        Configuration object.
+        Config object.
     """
 
     def __init__(self, config: Config):
@@ -101,16 +101,17 @@ class OSLTokenizer(BaseModel):
             name=config.name,
         )
 
-    def fit(self, *args, **kwargs):
-        """Fit the model and refactor the vocabulary."""
-        super().fit(*args, **kwargs)
-        x = get_argument(self.model.fit, "x", args, kwargs)
-        self.refactor_vocab(x)
+    # def fit(self, *args, **kwargs):
+    #     """Fit the model and refactor the vocabulary."""
+    #     super().fit(*args, **kwargs)
+    #     x = get_argument(self.model.fit, "x", args, kwargs)
+    #     self.refactor_vocab(x)
 
     def tokenize_data(
         self,
         data: Data,
         concatenate: bool = False,
+        split_channels: bool = True,
     ) -> Tuple[
         Union[np.ndarray, List[np.ndarray]],
         Union[np.ndarray, List[np.ndarray]],
@@ -124,6 +125,8 @@ class OSLTokenizer(BaseModel):
             The data to tokenize.
         concatenate : bool, optional
             Whether to concatenate the tokens over all sessions, by default False.
+        split_channels : bool, optional
+            Whether to split the sequences back to different channels, by default True.
 
         Returns
         -------
@@ -132,6 +135,10 @@ class OSLTokenizer(BaseModel):
         token_weights : Union[np.ndarray, List[np.ndarray]]
             The token weights for each token in each session.
         """
+        # Concatenate channels if it's not done already
+        if getattr(data, "original_channels", None) is None:
+            data.concatenate_channels()
+
         dataset = self.make_dataset(data, shuffle=False, concatenate=False)
 
         def _tokenize_data(d):
@@ -148,7 +155,20 @@ class OSLTokenizer(BaseModel):
         for d in tqdm(dataset, desc="Tokenizing data", total=len(dataset)):
             token_weights.append(_tokenize_data(d))
 
-        tokens = [np.argmax(tw, axis=-1) for tw in token_weights]
+        tokens = [np.argmax(tw, axis=-1, keepdims=True) for tw in token_weights]
+
+        if split_channels:
+            tokens = [
+                np.reshape(t, (-1, data.original_n_channels), order="F") for t in tokens
+            ]
+            token_weights = [
+                np.reshape(
+                    tw,
+                    (-1, data.original_n_channels, self.config.model_config.n_tokens),
+                    order="F",
+                )
+                for tw in token_weights
+            ]
 
         if concatenate:
             tokens = np.concatenate(tokens)
@@ -201,7 +221,7 @@ class OSLTokenizer(BaseModel):
             "label_map": label_map,
         }
 
-    def get_pve(self, data: Data) -> List[float]:
+    def get_pve(self, data: Data) -> np.ndarray:
         """
         Get the percentage of variance explained by the tokens.
 
@@ -212,7 +232,7 @@ class OSLTokenizer(BaseModel):
 
         Returns
         -------
-        pve : List[float]
+        pve : np.ndarray
             The percentage of variance explained by the tokens for each session.
         """
         dataset = self.make_dataset(data, shuffle=False, concatenate=False)
@@ -242,7 +262,7 @@ class OSLTokenizer(BaseModel):
         ):
             pve.append(_get_pve(d))
 
-        return pve
+        return np.array(pve)
 
     def reconstruct_data(
         self,
