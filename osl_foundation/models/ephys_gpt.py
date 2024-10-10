@@ -56,7 +56,7 @@ class CrossEntropyLossLayer(tf.keras.layers.Layer):
         super().__init__(**kwargs)
         self.loss_sequence_length = loss_sequence_length
         self.loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-        self.accuracy = tf.keras.metrics.SparseCategoricalAccuracy()
+        self.accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name="accuracy")
 
     def call(self, y_true, y_pred, **kwargs):
         # y_true.shape = (batch_size, sequence_length, n_channels)

@@ -306,13 +306,20 @@ class SSTALayer(tf.keras.layers.Layer):
                 mask = 1 - np.eye(self.n_channels)
                 return tf.constant(mask, dtype=tf.float32)
 
-            # Sampler whether to apply within-channel attention
-            if uniform_sampler.sample() < self.within_channel_attention_dropout:
+            # Sample whether to apply within-channel attention
+            elif uniform_sampler.sample() < self.within_channel_attention_dropout:
                 # Does not apply within-channel attention and mask all diagonal elements
                 mask = np.eye(self.n_channels)
                 return tf.constant(mask, dtype=tf.float32)
 
             # Apply channel attention and does not mask any elements, return None
+            else:
+                mask = np.zeros((self.n_channels, self.n_channels))
+                return tf.constant(mask, dtype=tf.float32)
+
+        # If not training, return None
+        # else:
+        #     return None
 
     def call(self, inputs, training=None, **kwargs):
         # ---------- Unpack Inputs ---------- #

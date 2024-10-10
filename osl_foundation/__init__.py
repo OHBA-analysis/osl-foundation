@@ -2,7 +2,7 @@ import logging
 from pkg_resources import DistributionNotFound, get_distribution
 
 from osl_foundation.config import get_config
-from osl_foundation.models import create_model
+from osl_foundation.models import create_model, load_model
 
 # Setup the version
 try:

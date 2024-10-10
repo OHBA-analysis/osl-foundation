@@ -40,7 +40,7 @@ def load_model(model_dir: str):
     model : Union[OSLTokenizer]
         Model object.
     """
-    config = get_config(configuration_file=f"{model_dir}/config.yml")
+    config = get_config(configuration=f"{model_dir}/config.yml")
     model = create_model(config)
     # TODO: Restore model from checkpoint
     model.load_weights(f"{model_dir}/weights").expect_partial()

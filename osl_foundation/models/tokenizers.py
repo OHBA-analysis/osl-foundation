@@ -136,7 +136,7 @@ class OSLTokenizer(BaseModel):
             The token weights for each token in each session.
         """
         # Concatenate channels if it's not done already
-        if getattr(data, "original_channels", None) is None:
+        if getattr(data, "original_n_channels", None) is None:
             data.concatenate_channels()
 
         dataset = self.make_dataset(data, shuffle=False, concatenate=False)
