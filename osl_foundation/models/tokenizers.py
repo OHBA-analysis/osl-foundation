@@ -52,28 +52,28 @@ class OSLTokenizer(BaseModel):
         )
 
         class Decoder(tf.keras.layers.Layer):
-            # def __init__(self, **kwargs):
-            #     super().__init__(**kwargs)
-            #     self.token_basis_layer = tf.keras.layers.Conv1D(
-            #         filters=1,
-            #         kernel_size=config.token_dim,
-            #         padding="same",
-            #     )
-
-            # def call(self, inputs):
-            #     return self.token_basis_layer(inputs)
-
             def __init__(self, **kwargs):
                 super().__init__(**kwargs)
                 self.token_basis_layer = tf.keras.layers.Conv1D(
-                    filters=config.n_tokens,
+                    filters=1,
                     kernel_size=config.token_dim,
                     padding="same",
                 )
 
             def call(self, inputs):
-                output = self.token_basis_layer(inputs)
-                return tf.reduce_sum(output, axis=-1, keepdims=True)
+                return self.token_basis_layer(inputs)
+
+            # def __init__(self, **kwargs):
+            #     super().__init__(**kwargs)
+            #     self.token_basis_layer = tf.keras.layers.Conv1D(
+            #         filters=config.n_tokens,
+            #         kernel_size=config.token_dim,
+            #         padding="same",
+            #     )
+
+            # def call(self, inputs):
+            #     output = self.token_basis_layer(inputs)
+            #     return tf.reduce_sum(output, axis=-1, keepdims=True)
 
         decoder_layer = Decoder(name="decoder")
 

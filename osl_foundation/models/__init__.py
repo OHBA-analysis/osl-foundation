@@ -2,19 +2,22 @@ from typing import Union
 from osl_foundation.config import Config, get_config
 
 
-def create_model(config: Config):
+def create_model(config: Union[Config, str]):
     """Create a model based on the configuration.
 
     Parameters
     ----------
-    config : Config
-        Configuration object.
+    config : Union[Config, str]
+        String, path to a configuration file, or a Config object.
 
     Returns
     -------
     model : Union[OSLTokenizer]
         Model object.
     """
+    if isinstance(config, str):
+        config = get_config(config)
+
     if config.model_config.name == "osl_tokenizer":
         from osl_foundation.models.tokenizers import OSLTokenizer
 

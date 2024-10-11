@@ -31,7 +31,10 @@ bursts.plot_data()
 
 # Load the simulated data
 data = Data(
-    sorted(glob(f"{simulation_config['data_dir']}/*.npy")), store_dir="sim_data"
+    sorted(glob(f"{simulation_config['data_dir']}/*.npy")),
+    store_dir="data_tmp",
+    use_tfrecord=True,
+    n_jobs=8,
 )
 
 # Standardize the data
@@ -43,7 +46,7 @@ data.concatenate_channels()
 train_tokenizer = True
 # Model and training configuration
 if train_tokenizer:
-    configuration = """
+    config = """
         model_config:
             name: osl_tokenizer
             n_tokens: 128
@@ -52,14 +55,12 @@ if train_tokenizer:
         training_config:
             optimizer:
                 learning_rate: 0.005
-            batch_size: 256
+            batch_size: 512
             n_epochs: 40
             temperature_annealing:
                 n_stages: 40
             lr_decay: 0.1
     """
-    config = get_config(configuration)
-
     # Build model
     tokenizer = create_model(config)
 
@@ -82,11 +83,16 @@ print(f"Percentage of Explained Variance: {pve.mean():.2f}% ({pve.std():.2f}%)")
 
 
 # Tokenize the data
-tokenized_data = Data(tokenizer.tokenize_data(data)[0], store_dir="tokenized_data")
+tokenized_data = Data(
+    tokenizer.tokenize_data(data)[0],
+    store_dir="tokenized_data_tmp",
+    use_tfrecord=True,
+    n_jobs=8,
+)
 
 train_generator = True
 if train_generator:
-    configuration = f"""
+    generator_config = f"""
         model_config:
             name: ephys_gpt
             sequence_length: 256
@@ -95,7 +101,7 @@ if train_generator:
                 n_tokens: 128
                 n_channels: {tokenized_data.n_channels}
             decoder_parameters:
-                n_layers: 1
+                n_layers: 2
                 n_heads: 4
                 model_dim: 256
                 latent_sequence_length: 128
@@ -116,14 +122,13 @@ if train_generator:
             n_epochs: 20
             lr_decay: 0.1
     """
-    generator_config = get_config(configuration)
     generator = create_model(generator_config)
     generator.summary()
 
     # Split data into train and validation sets
-    train_data, val_data = tokenized_data.dataset(
-        sequence_length=generator_config.model_config.sequence_length,
-        batch_size=generator_config.training_config.batch_size,
+    train_data, val_data = tokenized_data.tfrecord_dataset(
+        sequence_length=generator.config.model_config.sequence_length,
+        batch_size=generator.config.training_config.batch_size,
         validation_split=0.2,
     )
     generator.fit(train_data, validation_data=val_data)

@@ -3,7 +3,7 @@ import os
 
 from osl_dynamics.inference import tf_ops
 
-from osl_foundation import get_config, create_model
+from osl_foundation import create_model
 from osl_foundation.simulation.bursts import Bursts
 from osl_foundation.data import Data
 
@@ -39,7 +39,7 @@ data.standardize()
 data.concatenate_channels()
 
 # Model and training configuration
-configuration = """
+config = """
     model_config:
         name: osl_tokenizer
         n_tokens: 128
@@ -54,8 +54,6 @@ configuration = """
             n_stages: 40
         lr_decay: 0.1
 """
-config = get_config(configuration)
-
 # Build model
 model = create_model(config)
 
