@@ -21,20 +21,14 @@ class MSELossLayer(tf.keras.layers.Layer):
     This is a wrapper around tf.keras.losses.MeanSquaredError.
     """
 
-    def __init__(self, sequence_length, global_batch_size, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.loss_fn = tf.keras.losses.MeanSquaredError(
-            reduction=tf.keras.losses.Reduction.SUM
-        )
-        self.sequence_length = sequence_length
-        self.global_batch_size = global_batch_size
+        self.loss_fn = lambda y_true, y_pred: tf.reduce_mean(tf.square(y_true - y_pred))
 
     def call(self, y_true, y_pred, **kwargs):
-        loss = (
-            self.loss_fn(y_true, y_pred) / self.global_batch_size / self.sequence_length
-        )
+        loss = self.loss_fn(y_true, y_pred)
         self.add_loss(loss)
-        return loss
+        return tf.expand_dims(loss, -1)
 
 
 class TokenWeightsLayer(tf.keras.layers.Layer):
@@ -61,10 +55,10 @@ class TokenWeightsLayer(tf.keras.layers.Layer):
     def call(self, inputs, **kwargs):
         ell = self.activation_layer(self.dense_layer(inputs))
         ell = self.norm_layer(ell)
-        # Shape: (batch_size, sequence_length, n_tokens)
+        # Shape: (batch_size * n_channels, sequence_length, n_tokens)
 
         theta_weight = tf.nn.softmax(ell, axis=2)
-        # Shape: (batch_size, sequence_length, n_tokens)
+        # Shape: (batch_size * n_channels, sequence_length, n_tokens)
 
         # Sample from gumbel softmax parameterized by ell
         dist = tfp.distributions.Gumbel(0, 1)
@@ -74,7 +68,7 @@ class TokenWeightsLayer(tf.keras.layers.Layer):
         token_weight = (
             self.temperature * theta_weight + (1 - self.temperature) * theta_sample
         )
-        # Shape: (batch_size, sequence_length, n_tokens)
+        # Shape: (batch_size * n_channels, sequence_length, n_tokens)
 
         return token_weight
 

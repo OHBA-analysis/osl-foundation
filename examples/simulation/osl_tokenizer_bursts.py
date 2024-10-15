@@ -46,26 +46,27 @@ data = Data(sorted(glob(f"{simulation_config['data_dir']}/*.npy")), use_tfrecord
 # Standardize the data
 data.standardize()
 
-# Concatenate the channels
-data.concatenate_channels()
+# # Concatenate the channels
+# data.concatenate_channels()
 
 # Model and training configuration
-config = """
+config = f"""
     model_config:
         name: osl_tokenizer
-        sequence_length: 200
+        sequence_length: 256
+        n_channels: {n_channels}
         n_tokens: 128
         token_dim: 10
         rnn_n_units: 128
     training_config:
         optimizer:
-            learning_rate: 0.0001
-        batch_size: 128
+            learning_rate: 0.005
+        batch_size: 32
         n_epochs: 40
         temperature_annealing:
             n_stages: 40
-        # lr_decay: 0.1
-        # multi_gpu: True
+        lr_decay: 0.1
+        multi_gpu: True
 """
 # Build model
 model = create_model(config)

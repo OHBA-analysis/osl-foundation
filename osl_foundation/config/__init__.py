@@ -237,10 +237,12 @@ def get_model_config(
         raise ValueError("config must contain a 'name' key")
     elif name == "osl_tokenizer":
         model_config = OSLTokenizerModelConfig()
+        model_config.set_n_channels(config.get("n_channels", None))
         model_config.set_sequence_length(config.get("sequence_length", 256))
         _set_osl_tokenizer_config(model_config)
     elif name == "ephys_gpt":
         model_config = EphysGPTModelConfig()
+        model_config.set_n_channels(config.get("n_channels", None))
         model_config.set_sequence_length(config.get("sequence_length", 256))
         _set_ephys_gpt_config(model_config)
     else:

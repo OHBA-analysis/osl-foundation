@@ -16,6 +16,70 @@ from osl_foundation.inference.layers import TokenWeightsLayer, MSELossLayer
 _logger = logging.getLogger("osl-foundation")
 
 
+class EncoderLayer(tf.keras.layers.Layer):
+    def __init__(self, rnn_n_units, **kwargs):
+        super().__init__(**kwargs)
+        self.rnn = tf.keras.layers.GRU(
+            rnn_n_units,
+            return_sequences=True,
+            stateful=False,
+        )
+
+    def call(self, inputs, **kwargs):
+        x = inputs
+        # x.shape = (batch_size, sequence_length, n_channels)
+
+        # Prepare for RNN
+        x = tf.transpose(x, perm=(0, 2, 1))
+        # x.shape = (batch_size, n_channels, sequence_length)
+
+        # Reshape for RNN
+        x = tf.reshape(x, (-1, x.shape[-1], 1))
+        # x.shape = (batch_size * n_channels, sequence_length, 1)
+
+        # Encode
+        x = self.rnn(x)
+        # x.shape = (batch_size * n_channels, sequence_length, rnn_n_units)
+
+        return x
+
+
+class Decoder(tf.keras.layers.Layer):
+    def __init__(self, n_channels, sequence_length, n_tokens, token_dim, **kwargs):
+        super().__init__(**kwargs)
+        self.n_channels = n_channels
+        self.sequence_length = sequence_length
+        self.n_tokens = n_tokens
+        self.token_basis_layer = tf.keras.layers.Conv1D(
+            filters=1,
+            kernel_size=token_dim,
+            padding="same",
+        )
+
+    def call(self, inputs):
+        x = inputs
+        # x.shape = (batch_size * n_channels, sequence_length, n_tokens)
+
+        x = self.token_basis_layer(x)
+        # x.shape = (batch_size * n_channels, sequence_length, 1)
+
+        x = tf.reshape(x, (-1, self.n_channels, self.sequence_length))
+        # x.shape = (batch_size, n_channels, sequence_length)
+
+        x = tf.transpose(x, perm=(0, 2, 1))
+        # x.shape = (batch_size, sequence_length, n_channels)
+
+        token_weights = tf.reshape(
+            inputs, (-1, self.n_channels, self.sequence_length, self.n_tokens)
+        )
+        # token_weights.shape = (batch_size, n_channels, sequence_length, n_tokens)
+
+        token_weights = tf.transpose(token_weights, perm=(0, 2, 1, 3))
+        # token_weights.shape = (batch_size, sequence_length, n_channels, n_tokens)
+
+        return x, token_weights
+
+
 class OSLTokenizer(BaseModel):
     """
     OSL Tokenizer model.
@@ -38,11 +102,8 @@ class OSLTokenizer(BaseModel):
         config = self.config.model_config
 
         # ---------- Layers ---------- #
-
-        encoder_layer = tf.keras.layers.GRU(
+        encoder_layer = EncoderLayer(
             config.rnn_n_units,
-            return_sequences=True,
-            stateful=False,
             name="encoder",
         )
 
@@ -51,51 +112,31 @@ class OSLTokenizer(BaseModel):
             name="token_weights",
         )
 
-        class Decoder(tf.keras.layers.Layer):
-            # def __init__(self, **kwargs):
-            #     super().__init__(**kwargs)
-            #     self.token_basis_layer = tf.keras.layers.Conv1D(
-            #         filters=1,
-            #         kernel_size=config.token_dim,
-            #         padding="same",
-            #     )
-
-            # def call(self, inputs):
-            #     return self.token_basis_layer(inputs)
-
-            def __init__(self, **kwargs):
-                super().__init__(**kwargs)
-                self.token_basis_layer = tf.keras.layers.Conv1D(
-                    filters=config.n_tokens,
-                    kernel_size=config.token_dim,
-                    padding="same",
-                )
-
-            def call(self, inputs):
-                output = self.token_basis_layer(inputs)
-                return tf.reduce_sum(output, axis=-1, keepdims=True)
-
-        decoder_layer = Decoder(name="decoder")
-
-        mse_loss_layer = MSELossLayer(
-            sequence_length=config.sequence_length,
-            global_batch_size=self.config.training_config.batch_size,
-            name="mse_loss",
+        decoder_layer = Decoder(
+            config.n_channels,
+            config.sequence_length,
+            config.n_tokens,
+            config.token_dim,
+            name="decoder",
         )
+        mse_loss_layer = MSELossLayer(name="mse_loss")
 
         # ---------- Forward Pass ---------- #
 
-        inputs = tf.keras.layers.Input(shape=(config.sequence_length, 1), name="data")
-        # Shape: (batch_size, sequence_length, 1)
+        inputs = tf.keras.layers.Input(
+            shape=(config.sequence_length, config.n_channels), name="data"
+        )
+        # Shape: (batch_size, sequence_length, n_channels)
 
         encoder_output = encoder_layer(inputs)
-        # Shape: (batch_size, sequence_length, rnn_n_units)
+        # Shape: (batch_size * n_channels, sequence_length, rnn_n_units)
 
         token_weights = token_weights_layer(encoder_output)
-        # Shape: (batch_size, sequence_length, n_tokens)
+        # Shape: (batch_size * n_channels, sequence_length, n_tokens)
 
-        reconstructed_data = decoder_layer(token_weights)
-        # Shape: (batch_size, sequence_length, 1)
+        reconstructed_data, token_weights = decoder_layer(token_weights)
+        # reconstructed_data.shape = (batch_size, sequence_length, n_channels)
+        # token_weights.shape = (batch_size, sequence_length, n_channels, n_tokens)
 
         mse_loss = mse_loss_layer(inputs, reconstructed_data)
 
@@ -115,7 +156,6 @@ class OSLTokenizer(BaseModel):
         self,
         data: Data,
         concatenate: bool = False,
-        split_channels: bool = True,
     ) -> Tuple[
         Union[np.ndarray, List[np.ndarray]],
         Union[np.ndarray, List[np.ndarray]],
@@ -129,8 +169,6 @@ class OSLTokenizer(BaseModel):
             The data to tokenize.
         concatenate : bool, optional
             Whether to concatenate the tokens over all sessions, by default False.
-        split_channels : bool, optional
-            Whether to split the sequences back to different channels, by default True.
 
         Returns
         -------
@@ -139,9 +177,6 @@ class OSLTokenizer(BaseModel):
         token_weights : Union[np.ndarray, List[np.ndarray]]
             The token weights for each token in each session.
         """
-        # Concatenate channels if it's not done already
-        if getattr(data, "original_n_channels", None) is None:
-            data.concatenate_channels()
 
         dataset = self.make_dataset(data, shuffle=False, concatenate=False)
 
@@ -152,6 +187,7 @@ class OSLTokenizer(BaseModel):
                 tw.append(self.model(x)[2])
             # Concatenate over batches and sequences
             tw = np.concatenate(np.concatenate(tw))
+            # tw.shape = (n_samples, n_channels, n_tokens)
             return tw
 
         _logger.info("Tokenizing data...")
@@ -160,19 +196,6 @@ class OSLTokenizer(BaseModel):
             token_weights.append(_tokenize_data(d))
 
         tokens = [np.argmax(tw, axis=-1, keepdims=True) for tw in token_weights]
-
-        if split_channels:
-            tokens = [
-                np.reshape(t, (-1, data.original_n_channels), order="F") for t in tokens
-            ]
-            token_weights = [
-                np.reshape(
-                    tw,
-                    (-1, data.original_n_channels, self.config.model_config.n_tokens),
-                    order="F",
-                )
-                for tw in token_weights
-            ]
 
         if concatenate:
             tokens = np.concatenate(tokens)

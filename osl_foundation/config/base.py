@@ -62,10 +62,12 @@ class BaseTrainingConfig:
 class BaseModelConfig:
     name: str = None
     sequence_length: int = None
+    n_channels: int = None
 
     def validate(self):
         assert self.name is not None, "name must be set"
         assert self.sequence_length is not None, "sequence_length must be set"
+        assert self.n_channels is not None, "n_channels must be set"
 
     def set_name(self, name: str):
         self.name = name
@@ -73,5 +75,12 @@ class BaseModelConfig:
     def set_sequence_length(self, sequence_length: int):
         self.sequence_length = sequence_length
 
+    def set_n_channels(self, n_channels: int):
+        self.n_channels = n_channels
+
     def get_config(self) -> dict:
-        return {"name": self.name, "sequence_length": self.sequence_length}
+        return {
+            "name": self.name,
+            "sequence_length": self.sequence_length,
+            "n_channels": self.n_channels,
+        }

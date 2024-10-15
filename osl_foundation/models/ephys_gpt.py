@@ -49,16 +49,11 @@ class CrossEntropyLossLayer(tf.keras.layers.Layer):
     def __init__(
         self,
         loss_sequence_length,
-        global_batch_size,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.loss_sequence_length = loss_sequence_length
-        self.loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(
-            from_logits=True, reduction=tf.keras.losses.Reduction.SUM
-        )
         self.accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name="accuracy")
-        self.global_batch_size = global_batch_size
 
     def call(self, y_true, y_pred, **kwargs):
         # y_true.shape = (batch_size, sequence_length, n_channels)
@@ -68,15 +63,15 @@ class CrossEntropyLossLayer(tf.keras.layers.Layer):
         y_true = y_true[:, -self.loss_sequence_length :]
         y_pred = y_pred[:, -self.loss_sequence_length :]
 
-        loss = (
-            self.loss_fn(y_true, y_pred)
-            / self.global_batch_size
-            / self.loss_sequence_length
+        loss = tf.reduce_mean(
+            tf.keras.losses.sparse_categorical_crossentropy(
+                y_true, y_pred, from_logits=True
+            )
         )
         accuracy = self.accuracy(y_true, y_pred)
         self.add_loss(loss)
         self.add_metric(accuracy, name="accuracy")
-        return loss, y_pred
+        return tf.expand_dims(loss, -1), y_pred
 
 
 class InputEmbeddingLayer(tf.keras.layers.Layer):
@@ -472,7 +467,6 @@ class EphysGPT(BaseModel):
         )
         loss_layer = CrossEntropyLossLayer(
             config.loss_sequence_length,
-            global_batch_size=self.config.training_config.batch_size,
             name="loss",
         )
 

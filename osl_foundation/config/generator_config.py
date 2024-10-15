@@ -30,7 +30,6 @@ class EphysGPTModelConfig(BaseModelConfig):
     # ---------- Input parameters ---------- #
     embedding_dim: int = None
     n_tokens: int = None
-    n_channels: int = None
 
     token_embedding_dim: int = None
     pos_embedding_dim: int = None
@@ -117,7 +116,6 @@ class EphysGPTModelConfig(BaseModelConfig):
     def _set_input_parameters(self, config: dict) -> None:
         self.embedding_dim = config.get("embedding_dim", 64)
         self.n_tokens = config.get("n_tokens", 128)
-        self.n_channels = config.get("n_channels", None)
         self.token_embedding_dim = config.get("token_embedding_dim", None)
         self.pos_embedding_dim = config.get("pos_embedding_dim", None)
         self.channel_embedding_dim = config.get("channel_embedding_dim", None)
