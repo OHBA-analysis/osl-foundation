@@ -143,7 +143,7 @@ class TimeAttentionLayer(tf.keras.layers.Layer):
 
         # Apply mask
         if mask is not None:
-            attention += -1e-9 * mask
+            attention += -1e9 * mask
 
         # Normalise attention with softmax
         attention = tf.nn.softmax(attention, axis=-1)
@@ -187,7 +187,7 @@ class ChannelAttention(tf.keras.layers.Layer):
 
         # Apply mask
         if mask is not None:
-            attention += -1e-9 * mask
+            attention += -1e9 * mask
 
         # Normalise attention with softmax
         attention = tf.nn.softmax(attention, axis=-1)

@@ -51,7 +51,7 @@ data = Data(
 # Standardize the data
 data.standardize()
 
-train_tokenizer = False
+train_tokenizer = True
 # Model and training configuration
 if train_tokenizer:
     config = f"""
@@ -132,7 +132,6 @@ if train_generator:
             batch_size: 64
             n_epochs: 20
             lr_decay: 0.1
-            # multi_gpu: True
     """
     generator = create_model(generator_config)
     generator.summary()
