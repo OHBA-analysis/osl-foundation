@@ -1,9 +1,21 @@
 from typing import Union
 from dataclasses import dataclass
+from packaging import version
 
 import tensorflow as tf
 import numpy as np
 import yaml
+
+if version.parse(tf.__version__) < version.parse("2.13"):
+    from tensorflow.python.distribute.distribution_strategy_context import get_strategy
+elif version.parse(tf.__version__) < version.parse("2.16"):
+    from tensorflow.python.distribute.distribute_lib import get_strategy
+else:
+    raise ImportError(
+        f"Unsupported TensorFlow version: {tf.__version__}. Please use <= 2.15."
+    )
+
+from tensorflow.python.distribute.mirrored_strategy import MirroredStrategy
 
 from osl_dynamics.config_api.pipeline import load_config
 
@@ -188,8 +200,10 @@ def get_training_config(config: dict) -> BaseTrainingConfig:
     training_config.set_callbacks(callbacks)
 
     # Set strategy
-    if config.get("multi_gpu", False):
-        training_config.set_strategy(tf.distribute.MirroredStrategy())
+    if config.get("multi_gpu", None) is None:
+        training_config.set_strategy(get_strategy())
+    else:
+        training_config.set_strategy(MirroredStrategy())
 
     return training_config
 

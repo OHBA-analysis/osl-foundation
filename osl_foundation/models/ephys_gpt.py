@@ -4,8 +4,6 @@ import tensorflow as tf
 import numpy as np
 
 from osl_foundation.models.base import BaseModel
-from osl_foundation.data import Data
-from osl_foundation.config import Config
 from osl_foundation.config.generator_config import Label
 from osl_foundation.inference.layers import (
     IdentityLayer,
@@ -51,12 +49,16 @@ class CrossEntropyLossLayer(tf.keras.layers.Layer):
     def __init__(
         self,
         loss_sequence_length,
+        global_batch_size,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.loss_sequence_length = loss_sequence_length
-        self.loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+        self.loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(
+            from_logits=True, reduction=tf.keras.losses.Reduction.SUM
+        )
         self.accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name="accuracy")
+        self.global_batch_size = global_batch_size
 
     def call(self, y_true, y_pred, **kwargs):
         # y_true.shape = (batch_size, sequence_length, n_channels)
@@ -66,7 +68,11 @@ class CrossEntropyLossLayer(tf.keras.layers.Layer):
         y_true = y_true[:, -self.loss_sequence_length :]
         y_pred = y_pred[:, -self.loss_sequence_length :]
 
-        loss = self.loss_fn(y_true, y_pred)
+        loss = (
+            self.loss_fn(y_true, y_pred)
+            / self.global_batch_size
+            / self.loss_sequence_length
+        )
         accuracy = self.accuracy(y_true, y_pred)
         self.add_loss(loss)
         self.add_metric(accuracy, name="accuracy")
@@ -308,16 +314,32 @@ class DecoderLayer(tf.keras.layers.Layer):
         ]
         for _ in range(n_layers - 1):
             self.attention_layers.append(
-                MultiHeadSSTALayer(
+                MultiHeadPASSTALayer(
                     n_heads,
                     model_dim,
                     embedding_dim,
                     n_channels,
                     latent_sequence_length,
+                    latent_sequence_length,
+                    latent_sequence_length // patch_length,
+                    patch_length,
+                    unpatched_length,
                     channel_attention_dropout,
                     within_channel_attention_dropout,
                 )
             )
+        # for _ in range(n_layers - 1):
+        #     self.attention_layers.append(
+        #         MultiHeadSSTALayer(
+        #             n_heads,
+        #             model_dim,
+        #             embedding_dim,
+        #             n_channels,
+        #             latent_sequence_length,
+        #             channel_attention_dropout,
+        #             within_channel_attention_dropout,
+        #         )
+        #     )
 
         # Normalization layers
 
@@ -448,7 +470,11 @@ class EphysGPT(BaseModel):
         prediction_head_layer = tf.keras.layers.Dense(
             config.n_tokens, name="prediction_head"
         )
-        loss_layer = CrossEntropyLossLayer(config.loss_sequence_length, name="loss")
+        loss_layer = CrossEntropyLossLayer(
+            config.loss_sequence_length,
+            global_batch_size=self.config.training_config.batch_size,
+            name="loss",
+        )
 
         # ---------- Forward Pass ---------- #
 

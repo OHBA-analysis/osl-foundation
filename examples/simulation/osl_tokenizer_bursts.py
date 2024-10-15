@@ -1,6 +1,8 @@
 from glob import glob
 import os
 
+import numpy as np
+
 from osl_dynamics.inference import tf_ops
 
 from osl_foundation import create_model
@@ -11,15 +13,24 @@ tf_ops.gpu_growth()
 
 # Simulation parameters
 simulation_config = {
-    "n_groups": 1,
-    "n_subjects_per_group": 1,
-    "n_channels_per_mode": 1,
-    "n_modes": 2,
-    "n_samples": 512000,
+    "n_groups": 3,
+    "n_subjects_per_group": 20,
+    "true_freqs": np.array([3.0, 6.0, 10.0, 20.0]),
     "sampling_frequency": 100,
     "snr": 3.0,
     "data_dir": "sim_data",
 }
+n_modes = simulation_config["true_freqs"].shape[0]
+n_channels = 12
+channel_activity = np.zeros((n_modes, n_channels))
+channel_activity[:2] = 1
+channel_activity[:, : n_channels // 3] = 1
+channel_activity[2, n_channels // 3 : 2 * n_channels // 3] = 1
+channel_activity[3, 2 * n_channels // 3 :] = 1
+simulation_config["channel_activity"] = channel_activity
+
+# 5 minutes of data
+simulation_config["n_samples"] = 5 * 60 * simulation_config["sampling_frequency"]
 
 bursts = Bursts(**simulation_config)
 
@@ -42,17 +53,19 @@ data.concatenate_channels()
 config = """
     model_config:
         name: osl_tokenizer
+        sequence_length: 200
         n_tokens: 128
-        token_dim: 32
+        token_dim: 10
         rnn_n_units: 128
     training_config:
         optimizer:
-            learning_rate: 0.005
-        batch_size: 64
+            learning_rate: 0.0001
+        batch_size: 128
         n_epochs: 40
         temperature_annealing:
             n_stages: 40
-        lr_decay: 0.1
+        # lr_decay: 0.1
+        # multi_gpu: True
 """
 # Build model
 model = create_model(config)

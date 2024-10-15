@@ -21,12 +21,18 @@ class MSELossLayer(tf.keras.layers.Layer):
     This is a wrapper around tf.keras.losses.MeanSquaredError.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, sequence_length, global_batch_size, **kwargs):
         super().__init__(**kwargs)
-        self.loss_fn = tf.keras.losses.MeanSquaredError()
+        self.loss_fn = tf.keras.losses.MeanSquaredError(
+            reduction=tf.keras.losses.Reduction.SUM
+        )
+        self.sequence_length = sequence_length
+        self.global_batch_size = global_batch_size
 
     def call(self, y_true, y_pred, **kwargs):
-        loss = self.loss_fn(y_true, y_pred)
+        loss = (
+            self.loss_fn(y_true, y_pred) / self.global_batch_size / self.sequence_length
+        )
         self.add_loss(loss)
         return loss
 
