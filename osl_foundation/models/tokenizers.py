@@ -1,6 +1,7 @@
 import logging
 from typing import Tuple, Union, List
 
+import pickle
 import numpy as np
 import tensorflow as tf
 from tqdm.auto import tqdm
@@ -10,7 +11,7 @@ from osl_dynamics.utils.misc import get_argument
 
 from osl_foundation.models.base import BaseModel
 from osl_foundation.data import Data
-from osl_foundation.config import Config
+from osl_foundation.config import Config, get_config
 from osl_foundation.inference.layers import TokenWeightsLayer, MSELossLayer
 
 _logger = logging.getLogger("osl-foundation")
@@ -195,7 +196,7 @@ class OSLTokenizer(BaseModel):
         for d in tqdm(dataset, desc="Tokenizing data", total=len(dataset)):
             token_weights.append(_tokenize_data(d))
 
-        tokens = [np.argmax(tw, axis=-1, keepdims=True) for tw in token_weights]
+        tokens = [np.argmax(tw, axis=-1) for tw in token_weights]
 
         if concatenate:
             tokens = np.concatenate(tokens)
@@ -349,3 +350,15 @@ class OSLTokenizer(BaseModel):
             reconstructed_data = np.concatenate(reconstructed_data)
 
         return reconstructed_data
+
+
+def load_tokenizer(model_dir: str) -> OSLTokenizer:
+    config = get_config(f"{model_dir}/config.yml")
+    if config.model_config.name == "osl_tokenizer":
+        tokenizer = OSLTokenizer(config)
+    else:
+        raise NotImplementedError(f"Model {config.model_config.name} not implemented.")
+    tokenizer.load_weights(f"{model_dir}/weights").expect_partial()
+    with open(f"{model_dir}/history.pkl", "rb") as f:
+        tokenizer.history = pickle.load(f)
+    return tokenizer

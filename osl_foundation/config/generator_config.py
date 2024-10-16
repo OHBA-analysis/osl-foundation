@@ -27,6 +27,9 @@ class Label:
 class EphysGPTModelConfig(BaseModelConfig):
     name: str = "ephys_gpt"
 
+    # ---------- Tokenizer ---------- #
+    tokenizer_path: str = None
+
     # ---------- Input parameters ---------- #
     embedding_dim: int = None
     n_tokens: int = None
@@ -57,9 +60,13 @@ class EphysGPTModelConfig(BaseModelConfig):
 
     def validate(self) -> None:
         super().validate()
+        self._validate_tokenizer_path()
         self._validate_input_parameters()
         self._validate_decoder_parameters()
         self._validate_loss_parameters()
+
+    def _validate_tokenizer_path(self) -> None:
+        assert self.tokenizer_path is not None, "tokenizer_path must be set"
 
     def _validate_input_parameters(self) -> None:
         assert self.embedding_dim is not None, "embedding_dim must be set"
@@ -109,9 +116,13 @@ class EphysGPTModelConfig(BaseModelConfig):
         ), "loss_sequence_length must be less or equal to latent_sequence_length"
 
     def set_config(self, config: dict) -> None:
+        self._set_tokenizer_path(config)
         self._set_input_parameters(config.get("input_parameters", {}))
         self._set_decoder_parameters(config.get("decoder_parameters", {}))
         self._set_loss_parameters(config.get("loss_parameters", {}))
+
+    def _set_tokenizer_path(self, config: dict) -> None:
+        self.tokenizer_path = config.get("tokenizer_path", None)
 
     def _set_input_parameters(self, config: dict) -> None:
         self.embedding_dim = config.get("embedding_dim", 64)

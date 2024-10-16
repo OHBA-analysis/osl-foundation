@@ -1,4 +1,7 @@
 from typing import Union
+
+import pickle
+
 from osl_foundation.config import Config, get_config
 
 
@@ -47,4 +50,6 @@ def load_model(model_dir: str):
     model = create_model(config)
     # TODO: Restore model from checkpoint
     model.load_weights(f"{model_dir}/weights").expect_partial()
+    with open(f"{model_dir}/history.pkl", "rb") as f:
+        model.history = pickle.load(f)
     return model
