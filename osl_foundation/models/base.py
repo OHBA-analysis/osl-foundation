@@ -2,8 +2,9 @@ from abc import abstractmethod
 from typing import Union, List
 import logging
 
-import tensorflow as tf
+import pickle
 import numpy as np
+import tensorflow as tf
 import matplotlib.pyplot as plt
 
 from osl_dynamics.inference import initializers as osld_initializers
@@ -31,6 +32,7 @@ class BaseModel:
         self._identifier = np.random.randint(100000)
         self.config = config
         self.model: tf.keras.Model = None
+        self.history: dict = None
         with self.config.training_config.strategy.scope():
             self.build_model()
             self.compile()
@@ -54,6 +56,7 @@ class BaseModel:
         concatenate=False,
         step_size=None,
         drop_last_batch=False,
+        validation_split=None,
     ) -> Union[tf.data.Dataset, List[tf.data.Dataset]]:
         """
         Make a TensorFlow Dataset from an osl-dynamics Data object.
@@ -72,6 +75,8 @@ class BaseModel:
             Default is no overlap.
         drop_last_batch : bool, optional
             Should we drop the last batch if it is smaller than the batch size?
+        validation_split : float, optional
+            Fraction of the data to use for validation.
 
         Returns
         -------
@@ -107,6 +112,7 @@ class BaseModel:
                     concatenate=concatenate,
                     step_size=step_size,
                     drop_last_batch=drop_last_batch,
+                    validation_split=validation_split,
                 )
             else:
                 outputs = inputs.dataset(
@@ -116,6 +122,7 @@ class BaseModel:
                     concatenate=concatenate,
                     step_size=step_size,
                     drop_last_batch=drop_last_batch,
+                    validation_split=validation_split,
                 )
 
         elif isinstance(inputs, tf.data.Dataset) and not concatenate:
@@ -165,7 +172,8 @@ class BaseModel:
             append=True,
         )
 
-        self.model.fit(*args, **kwargs)
+        history = self.model.fit(*args, **kwargs)
+        self.history = history.history
 
     def load_weights(self, filepath: str) -> tf.keras.Model:
         """Load weights from a file.
@@ -225,8 +233,10 @@ class BaseModel:
 
         self.save_config(dirname)
         self.model.save_weights(f"{dirname}/weights")
+        with open(f"{dirname}/history.pkl", "wb") as f:
+            pickle.dump(self.history, f)
 
-    def plot_history(self, plot_dir: str = None) -> None:
+    def plot_history(self, plot_dir: str = None, keyword: str = None) -> None:
         """Plot the training history.
 
         Parameters
@@ -234,16 +244,17 @@ class BaseModel:
         plot_dir : str, optional
             Directory to save the plot.
         """
-        history = self.model.history.history
         fig, ax = plt.subplots(figsize=(12, 6))
-        for key in history.keys():
-            ax.plot(history[key], label=key)
+        for key in self.history.keys():
+            if keyword is not None and keyword not in key:
+                continue
+            ax.plot(self.history[key], label=key)
         ax.legend()
         ax.set_xlabel("Epoch")
         ax.set_ylabel("Value")
         ax.set_title("Training History")
         if plot_dir is not None:
-            fig.savefig(f"{plot_dir}/history.png")
+            fig.savefig(f"{plot_dir}/history_{keyword}.png")
 
     def summary(self, **kwargs) -> None:
         """Print a summary of the model."""

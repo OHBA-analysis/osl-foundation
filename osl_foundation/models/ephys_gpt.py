@@ -3,11 +3,14 @@ from typing import List
 import tensorflow as tf
 import numpy as np
 
+from osl_dynamics.utils.misc import get_argument, replace_argument
+
+from osl_foundation.data import Data
 from osl_foundation.models.base import BaseModel
+from osl_foundation.models.tokenizers import OSLTokenizer, load_tokenizer
 from osl_foundation.config.generator_config import Label
 from osl_foundation.inference.layers import (
     IdentityLayer,
-    MultiHeadSSTALayer,
     MultiHeadPASSTALayer,
     NormalizationLayer,
 )
@@ -407,7 +410,63 @@ class EphysGPT(BaseModel):
     """
 
     def build_model(self) -> None:
+        self.tokenizer = self._load_tokenizer()
         self.model = self._build_model()
+
+    def fit(
+        self, *args, use_tfrecord=False, n_jobs=1, step_size=None, **kwargs
+    ) -> None:
+        x = get_argument(self.model.fit, "x", args, kwargs)
+
+        # Tokenise the data and build Data object1
+        tokenized_x = self.tokenizer.tokenize_data(x)[0]
+        tokenized_x = Data(
+            tokenized_x,
+            store_dir=f"{getattr(x, 'store_dir', 'tmp')}/tokenized",
+            use_tfrecord=use_tfrecord,
+            n_jobs=n_jobs,
+        )
+
+        validation_split = get_argument(
+            self.model.fit, "validation_split", args, kwargs
+        )
+        dataset = self.make_dataset(
+            tokenized_x,
+            shuffle=True,
+            concatenate=True,
+            step_size=step_size,
+            drop_last_batch=True,
+            validation_split=validation_split,
+        )
+        if validation_split is None:
+            args, kwargs = replace_argument(
+                self.model.fit,
+                "x",
+                dataset,
+                args,
+                kwargs,
+            )
+        else:
+            args, kwargs = replace_argument(
+                self.model.fit,
+                "x",
+                dataset[0],
+                args,
+                kwargs,
+            )
+            args, kwargs = replace_argument(
+                self.model.fit,
+                "validation_data",
+                dataset[1],
+                args,
+                kwargs,
+            )
+
+        super().fit(*args, **kwargs)
+
+    def _load_tokenizer(self) -> OSLTokenizer:
+        tokenizer_path = self.config.model_config.tokenizer_path
+        return load_tokenizer(tokenizer_path)
 
     def _build_model(self) -> tf.keras.Model:
         config = self.config.model_config

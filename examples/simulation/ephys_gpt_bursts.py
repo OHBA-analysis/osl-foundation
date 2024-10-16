@@ -51,7 +51,7 @@ data = Data(
 # Standardize the data
 data.standardize()
 
-train_tokenizer = True
+train_tokenizer = False
 # Model and training configuration
 if train_tokenizer:
     config = f"""
@@ -84,30 +84,20 @@ if train_tokenizer:
     # Save model
     os.makedirs("model/tokenizer", exist_ok=True)
     tokenizer.save("model/tokenizer")
-else:
-    # Load model
-    tokenizer = load_model("model/tokenizer")
 
-# Percentage of Explained Variance
-pve = tokenizer.get_pve(data)
-print(f"Percentage of Explained Variance: {pve.mean():.2f}% ({pve.std():.2f}%)")
+    # Percentage of Explained Variance
+    pve = tokenizer.get_pve(data)
+    print(f"Percentage of Explained Variance: {pve.mean():.2f}% ({pve.std():.2f}%)")
 
-
-# Tokenize the data
-tokenized_data = Data(
-    tokenizer.tokenize_data(data)[0],
-    store_dir="tokenized_data_tmp",
-    use_tfrecord=True,
-    n_jobs=8,
-)
 
 train_generator = True
 if train_generator:
     generator_config = f"""
         model_config:
             name: ephys_gpt
+            tokenizer_path: model/tokenizer
             sequence_length: 256
-            n_channels: {tokenized_data.n_channels}
+            n_channels: {n_channels}
             input_parameters:
                 embedding_dim: 256
                 n_tokens: 128
@@ -136,13 +126,7 @@ if train_generator:
     generator = create_model(generator_config)
     generator.summary()
 
-    # Split data into train and validation sets
-    train_data, val_data = tokenized_data.tfrecord_dataset(
-        sequence_length=generator.config.model_config.sequence_length,
-        batch_size=generator.config.training_config.batch_size,
-        validation_split=0.2,
-    )
-    generator.fit(train_data, validation_data=val_data)
+    generator.fit(data, validation_split=0.2, use_tfrecord=True, n_jobs=8)
     os.makedirs("model/ephys_gpt", exist_ok=True)
     generator.save("model/ephys_gpt")
 else:
@@ -152,4 +136,3 @@ else:
 
 # Clean up directories
 data.delete_dir()
-tokenized_data.delete_dir()
