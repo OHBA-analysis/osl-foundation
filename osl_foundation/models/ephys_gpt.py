@@ -418,7 +418,7 @@ class EphysGPT(BaseModel):
     ) -> None:
         x = get_argument(self.model.fit, "x", args, kwargs)
 
-        # Tokenise the data and build Data object1
+        # Tokenise the data and build Data object
         tokenized_x = self.tokenizer.tokenize_data(x)[0]
         tokenized_x = Data(
             tokenized_x,

@@ -51,7 +51,7 @@ data = Data(
 # Standardize the data
 data.standardize()
 
-train_tokenizer = False
+train_tokenizer = True
 # Model and training configuration
 if train_tokenizer:
     config = f"""
@@ -70,7 +70,6 @@ if train_tokenizer:
             temperature_annealing:
                 n_stages: 40
             lr_decay: 0.1
-            multi_gpu: True
     """
     # Build model
     tokenizer = create_model(config)
@@ -119,14 +118,14 @@ if train_generator:
         training_config:
             optimizer:
                 learning_rate: 0.001
-            batch_size: 64
+            batch_size: 32
             n_epochs: 20
             lr_decay: 0.1
     """
     generator = create_model(generator_config)
     generator.summary()
 
-    generator.fit(data, validation_split=0.2, use_tfrecord=True, n_jobs=8)
+    generator.fit(data, validation_split=0.1, use_tfrecord=True, n_jobs=8)
     os.makedirs("model/ephys_gpt", exist_ok=True)
     generator.save("model/ephys_gpt")
 else:
