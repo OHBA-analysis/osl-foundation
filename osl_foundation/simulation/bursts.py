@@ -88,7 +88,7 @@ class Bursts:
             for i in range(self.n_groups):
                 for j in range(self.n_subjects_per_group):
                     true_freqs[i * self.n_subjects_per_group + j] += (
-                        i - (self.n_groups + 1) / 2
+                        i - (self.n_groups - 1) / 2
                     ) * group_freq_shift
         else:
             true_freqs = None
