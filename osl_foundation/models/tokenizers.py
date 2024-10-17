@@ -7,7 +7,6 @@ import tensorflow as tf
 from tqdm.auto import tqdm
 
 from osl_dynamics.array_ops import get_one_hot
-from osl_dynamics.utils.misc import get_argument
 
 from osl_foundation.models.base import BaseModel
 from osl_foundation.data import Data
@@ -18,7 +17,18 @@ _logger = logging.getLogger("osl-foundation")
 
 
 class EncoderLayer(tf.keras.layers.Layer):
-    def __init__(self, rnn_n_units, **kwargs):
+    """
+    Encoder layer.
+    This layer treats the channel dimension as the batch dimension
+    and uses a GRU to encode the data.
+
+    Parameters
+    ----------
+    rnn_n_units : int
+        Number of units in the RNN.
+    """
+
+    def __init__(self, rnn_n_units: int, **kwargs):
         super().__init__(**kwargs)
         self.rnn = tf.keras.layers.GRU(
             rnn_n_units,
@@ -46,7 +56,30 @@ class EncoderLayer(tf.keras.layers.Layer):
 
 
 class Decoder(tf.keras.layers.Layer):
-    def __init__(self, n_channels, sequence_length, n_tokens, token_dim, **kwargs):
+    """
+    Decoder layer.
+    This layer decodes the token weights to reconstruct the data.
+
+    Parameters
+    ----------
+    n_channels : int
+        Number of channels in the data.
+    sequence_length : int
+        Length of the sequence.
+    n_tokens : int
+        Number of tokens.
+    token_dim : int
+        Dimension of the token.
+    """
+
+    def __init__(
+        self,
+        n_channels: int,
+        sequence_length: int,
+        n_tokens: int,
+        token_dim: int,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.n_channels = n_channels
         self.sequence_length = sequence_length
@@ -146,12 +179,6 @@ class OSLTokenizer(BaseModel):
             outputs=[mse_loss, reconstructed_data, token_weights],
             name=config.name,
         )
-
-    # def fit(self, *args, **kwargs):
-    #     """Fit the model and refactor the vocabulary."""
-    #     super().fit(*args, **kwargs)
-    #     x = get_argument(self.model.fit, "x", args, kwargs)
-    #     self.refactor_vocab(x)
 
     def tokenize_data(
         self,
@@ -353,6 +380,19 @@ class OSLTokenizer(BaseModel):
 
 
 def load_tokenizer(model_dir: str) -> OSLTokenizer:
+    """
+    Load a tokenizer from a directory.
+
+    Parameters
+    ----------
+    model_dir : str
+        Directory containing the tokenizer model.
+
+    Returns
+    -------
+    tokenizer : OSLTokenizer
+        The loaded tokenizer.
+    """
     config = get_config(f"{model_dir}/config.yml")
     if config.model_config.name == "osl_tokenizer":
         tokenizer = OSLTokenizer(config)

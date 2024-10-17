@@ -51,7 +51,7 @@ class CrossEntropyLossLayer(tf.keras.layers.Layer):
 
     def __init__(
         self,
-        loss_sequence_length,
+        loss_sequence_length: int,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -414,8 +414,29 @@ class EphysGPT(BaseModel):
         self.model = self._build_model()
 
     def fit(
-        self, *args, use_tfrecord=False, n_jobs=1, step_size=None, **kwargs
+        self,
+        *args,
+        use_tfrecord: bool = False,
+        n_jobs: int = 1,
+        step_size: int = None,
+        **kwargs,
     ) -> None:
+        """
+        First tokenizes the data and then fits the model.
+
+        Parameters
+        ----------
+        *args : list
+            Positional arguments to pass to the model's fit method.
+        use_tfrecord : bool, optional
+            Whether to use tfrecord for the tokenized data.
+        n_jobs : int, optional
+            Number of jobs to use for the tokenized data.
+        step_size : int, optional
+            Step size when creating the dataset.
+        **kwargs : dict
+            Keyword arguments to pass to the model's fit method.
+        """
         x = get_argument(self.model.fit, "x", args, kwargs)
 
         # Tokenise the data and build Data object
@@ -465,6 +486,7 @@ class EphysGPT(BaseModel):
         super().fit(*args, **kwargs)
 
     def _load_tokenizer(self) -> OSLTokenizer:
+        """Load a trained tokenizer."""
         tokenizer_path = self.config.model_config.tokenizer_path
         return load_tokenizer(tokenizer_path)
 
