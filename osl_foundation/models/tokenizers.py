@@ -255,17 +255,26 @@ class OSLTokenizer(BaseModel):
         _logger.info("Refactoring vocabulary...")
         tokens = self.tokenize_data(data)[0]
 
+        # Count the tokens across samples and channels for each session
         token_counts = np.array(
-            [np.bincount(t, minlength=config.n_tokens) for t in tokens], dtype=np.int32
+            [np.bincount(t.flatten(), minlength=config.n_tokens) for t in tokens], dtype=np.int32
         )
+
+        # Get token order based on token counts
         token_order = (
             np.argsort(np.sum(token_counts, axis=0))[::-1]
             if sort
             else np.arange(config.n_tokens)
         )
-        if trim:
-            token_order = token_order[np.sum(token_counts, axis=0) > 0]
 
+        # Remove all token indices with zero counts
+        if trim:
+            token_order = token_order[np.sum(token_counts, axis=0)[token_order] > 0]
+
+        # Apply trimming and ordering to token counts
+        token_counts = token_counts[:, token_order]
+
+        # Get labels from token orders
         label_map = np.zeros(config.n_tokens, dtype=np.int32)
         label_map[token_order] = np.arange(len(token_order)) + 1
 
