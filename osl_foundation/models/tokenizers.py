@@ -260,7 +260,8 @@ class OSLTokenizer(BaseModel):
 
         # Count the tokens across samples and channels for each session
         token_counts = np.array(
-            [np.bincount(t.flatten(), minlength=config.n_tokens) for t in tokens], dtype=np.int32
+            [np.bincount(t.flatten(), minlength=config.n_tokens) for t in tokens],
+            dtype=np.int32,
         )
 
         # Get token order based on token counts
@@ -370,12 +371,12 @@ class OSLTokenizer(BaseModel):
             t_one_hot = [
                 get_one_hot(t[:, n], self.config.model_config.n_tokens).astype(
                     np.float32
-                ) # Shape: (n_samples, n_tokens)
+                )  # Shape: (n_samples, n_tokens)
                 for n in range(n_channels)
             ]
 
             # Add batch dimension
-            t_one_hot = np.array(t_one_hot) # having channel in batch dimension
+            t_one_hot = np.array(t_one_hot)  # having channel in batch dimension
             # Shape: (n_channels, n_samples, n_tokens)
 
             reconstructed_data = np.squeeze(token_basis_layer(t_one_hot))
@@ -395,7 +396,9 @@ class OSLTokenizer(BaseModel):
 
         return reconstructed_data
 
-    def get_token_kernel_response(self, data: Data, input: str = None) -> Tuple[List[np.ndarray], np.ndarray]:
+    def get_token_kernel_response(
+        self, data: Data, input: str = None
+    ) -> Tuple[List[np.ndarray], np.ndarray]:
         """
         Returns stimulus response of tokens to passed input.
 
@@ -404,7 +407,7 @@ class OSLTokenizer(BaseModel):
         data : osl_foundation.data.Data
             Time series data.
         input : str, optional
-            Stimulus input to get kernel response for. Should be "impulse" 
+            Stimulus input to get kernel response for. Should be "impulse"
             or "tophat". Defaults to "impulse".
 
         Returns
@@ -422,13 +425,13 @@ class OSLTokenizer(BaseModel):
         if not self.vocab:
             self.refactor_vocab(data)
 
-        # Make a stimulus 
+        # Make a stimulus
         if input in [None, "impulse"]:
             input = np.zeros(token_dim * 2)
             input[token_dim] = 1
-        elif input=="tophat":
+        elif input == "tophat":
             input = np.zeros(token_dim * 6)
-            input[token_dim:token_dim * 5] = 1
+            input[token_dim : token_dim * 5] = 1
 
         n_samples = input.shape[0]
 
@@ -443,16 +446,14 @@ class OSLTokenizer(BaseModel):
             # resposne.shape = (1, n_samples, n_tokens)
             response = np.squeeze(
                 np.sum(response, axis=2)
-            ) # resposne.shape = (n_samples)
+            )  # resposne.shape = (n_samples)
             kernel_response.append(response)
 
         # Remap to refactored tokens
-        token_response = [
-            kernel_response[ord] for ord in self.vocab["token_order"]
-        ]
+        token_response = [kernel_response[ord] for ord in self.vocab["token_order"]]
 
         return token_response, input
-    
+
     def plot_pve(self, data: Data, plot_dir: str = None) -> None:
         """
         Plots a histogram of the percentage of variance explained by the tokens.
@@ -476,7 +477,9 @@ class OSLTokenizer(BaseModel):
         axes.hist(pves, bins=20, color="skyblue", edgecolor="black")
         axes.set_xlabel("PVE (%)")
         axes.set_ylabel("Number of Sessions")
-        axes.set_title("Percentage of Variance Explained (Avg: {:.2f}%)".format(pves.mean()))
+        axes.set_title(
+            "Percentage of Variance Explained (Avg: {:.2f}%)".format(pves.mean())
+        )
         plt.tight_layout()
         fig.savefig(f"{plot_dir}/pve_histogram.png")
         plt.close(fig)
@@ -500,7 +503,7 @@ class OSLTokenizer(BaseModel):
         if not self.vocab:
             self.refactor_vocab(data)
             total_token_counts = self.vocab["total_token_counts"]
-        
+
         # Plot a histogram of token counts
         fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(8, 6))
         axes.bar(
@@ -516,7 +519,9 @@ class OSLTokenizer(BaseModel):
         fig.savefig(f"{plot_dir}/token_counts.png")
         plt.close(fig)
 
-    def plot_token_response(self, data: Data, input: str = "impulse", plot_dir: str = None) -> None:
+    def plot_token_response(
+        self, data: Data, input: str = "impulse", plot_dir: str = None
+    ) -> None:
         """
         Plots a stimulus response of each token kernel.
 
@@ -525,7 +530,7 @@ class OSLTokenizer(BaseModel):
         data : osl_foundation.data.Data
             Time series data.
         input : str, optional
-            Stimulus input to get kernel response for. Should be "impulse" 
+            Stimulus input to get kernel response for. Should be "impulse"
             or "tophat". Defaults to "impulse".
         plot_dir : str, optional
             Directory to save the plot.
@@ -544,7 +549,7 @@ class OSLTokenizer(BaseModel):
         # Limit number of tokens to plot
         if n_tokens > 30:
             n_tokens = 30
-            token_response = token_response[:n_tokens] # select top 30 tokens
+            token_response = token_response[:n_tokens]  # select top 30 tokens
 
         # Plot stimulus responses for each token
         short, long, _ = rough_square_axes(n_tokens)
@@ -571,7 +576,7 @@ class OSLTokenizer(BaseModel):
         plot_dir : str, optional
             Directory to save the plot.
         """
-        
+
         # Get simulated data and its ground truth
         data_path = f"sim_data/x_{sess_id}.npy"
         original_data = np.load(data_path)
@@ -588,8 +593,8 @@ class OSLTokenizer(BaseModel):
         fitted_data = self.reconstruct_data(tokenized_data)
 
         # Plot data signals and token weights
-        n_channels = min(original_data.shape[1], 3) # number of channels to plot
-        start_idx, end_idx = 200, 500 # start and end indices to plot
+        n_channels = min(original_data.shape[1], 3)  # number of channels to plot
+        start_idx, end_idx = 200, 500  # start and end indices to plot
         for n in range(n_channels):
             fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(20, 5))
             axes[0].plot(original_data[start_idx:end_idx, n], label="Original")
