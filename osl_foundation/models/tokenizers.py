@@ -357,29 +357,34 @@ class OSLTokenizer(BaseModel):
         if not isinstance(tokens, list):
             tokens = [tokens]
 
-        decoder = self.model.get_layer("decoder")
+        token_basis_layer = self.model.get_layer("decoder").token_basis_layer
 
         def _reconstruct_data(t):
             # Reconstruct for a single array of tokens
             # t.shape = (n_samples, n_channels) or (n_samples,)
 
-            original_shape = t.shape
-            t = np.reshape(t, -1, order="F")
-            # Shape: (n_samples, )
+            if t.ndim == 1:
+                t = t[:, np.newaxis]
 
-            t_one_hot = get_one_hot(t, self.config.model_config.n_tokens).astype(
-                np.float32
-            )
-            # Shape: (n_samples, n_tokens)
+            n_channels = t.shape[1]
+            t_one_hot = [
+                get_one_hot(t[:, n], self.config.model_config.n_tokens).astype(
+                    np.float32
+                ) # Shape: (n_samples, n_tokens)
+                for n in range(n_channels)
+            ]
 
             # Add batch dimension
-            t_one_hot = np.expand_dims(t_one_hot, axis=0)
-            # Shape: (1, n_samples, n_tokens)
+            t_one_hot = np.array(t_one_hot) # having channel in batch dimension
+            # Shape: (n_channels, n_samples, n_tokens)
 
-            reconstructed_data = np.squeeze(decoder(t_one_hot))
-            # Shape: (n_samples, )
+            reconstructed_data = np.squeeze(token_basis_layer(t_one_hot))
+            # x.shape = (n_channels, n_samples)
 
-            return np.reshape(reconstructed_data, original_shape, order="F")
+            # Reorder dimensions for consistency
+            reconstructed_data = np.transpose(reconstructed_data, axes=(1, 0))
+
+            return reconstructed_data
 
         reconstructed_data = []
         for t in tqdm(tokens, desc="Reconstructing data", total=len(tokens)):
@@ -554,6 +559,49 @@ class OSLTokenizer(BaseModel):
         plt.tight_layout()
         fig.savefig(f"{plot_dir}/token_response.png")
         plt.close(fig)
+
+    def plot_fitted_signal(self, sess_id: int = 0, plot_dir: str = None) -> None:
+        """
+        Plots a signal reconstructed from tokenized data and its token weights.
+
+        Parameters
+        ----------
+        sess_id : int, optional
+            Session ID to read a data file from. Defaults to 0.
+        plot_dir : str, optional
+            Directory to save the plot.
+        """
+        
+        # Get simulated data and its ground truth
+        data_path = f"sim_data/x_{sess_id}.npy"
+        original_data = np.load(data_path)
+        true_data = np.load(data_path.replace("x", "ground_truth/true_signal"))
+
+        # Normalize data
+        normalize = lambda x: (x - np.mean(x, axis=0)) / np.std(x, axis=0)
+        original_data = normalize(original_data)
+        true_data = normalize(true_data)
+
+        # Get data reconstructed from tokens
+        data = Data(data_path, use_tfrecord=True)
+        tokenized_data, token_weights = self.tokenize_data(data)
+        fitted_data = self.reconstruct_data(tokenized_data)
+
+        # Plot data signals and token weights
+        n_channels = min(original_data.shape[1], 3) # number of channels to plot
+        start_idx, end_idx = 200, 500 # start and end indices to plot
+        for n in range(n_channels):
+            fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(20, 5))
+            axes[0].plot(original_data[start_idx:end_idx, n], label="Original")
+            axes[0].plot(true_data[start_idx:end_idx, n], label="True")
+            axes[0].plot(fitted_data[start_idx:end_idx, n], label="Fitted")
+            axes[0].set_title(f"Channel {n}: Data Signals")
+            axes[0].legend()
+            axes[1].plot(token_weights[0][start_idx:end_idx, n, :])
+            axes[1].set_title(f"Token Weights")
+            plt.tight_layout()
+            fig.savefig(f"{plot_dir}/fitted_signal_sess{sess_id}_ch{n}.png")
+            plt.close(fig)
 
 
 def load_tokenizer(model_dir: str) -> OSLTokenizer:
