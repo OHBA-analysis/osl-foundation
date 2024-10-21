@@ -1,8 +1,10 @@
 import logging
+import os
 from typing import Tuple, Union, List
 
 import pickle
 import numpy as np
+import matplotlib.pyplot as plt
 import tensorflow as tf
 from tqdm.auto import tqdm
 
@@ -386,6 +388,69 @@ class OSLTokenizer(BaseModel):
             reconstructed_data = np.concatenate(reconstructed_data)
 
         return reconstructed_data
+    
+    def plot_pve(self, data: Data, plot_dir: str = None) -> None:
+        """
+        Plots a histogram of the percentage of variance explained by the tokens.
+
+        Parameters
+        ----------
+        data : osl_foundation.data.Data
+            Time series data.
+        plot_dir : str, optional
+            Directory to save the plot.
+        """
+
+        if plot_dir is not None:
+            os.makedirs(plot_dir, exist_ok=True)
+
+        # Calculate PVEs across all sessions
+        pves = self.get_pve(data)
+
+        # Plot a histogram of PVEs
+        fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(8, 6))
+        axes.hist(pves, bins=20, color="skyblue", edgecolor="black")
+        axes.set_xlabel("PVE (%)")
+        axes.set_ylabel("Number of Sessions")
+        axes.set_title("Percentage of Variance Explained (Avg: {:.2f}%)".format(pves.mean()))
+        plt.tight_layout()
+        fig.savefig(f"{plot_dir}/pve_histogram.png")
+        plt.close(fig)
+
+    def plot_token_counts(self, data: Data, plot_dir: str = None) -> None:
+        """
+        Plots a histogram of token counts over all sessions.
+
+        Parameters
+        ----------
+        data : osl_foundation.data.Data
+            Time series data.
+        plot_dir : str, optional
+            Directory to save the plot.
+        """
+
+        if plot_dir is not None:
+            os.makedirs(plot_dir, exist_ok=True)
+
+        # Refactor vocabularies
+        if not self.vocab:
+            self.refactor_vocab(data)
+            total_token_counts = self.vocab["total_token_counts"]
+        
+        # Plot a histogram of token counts
+        fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(8, 6))
+        axes.bar(
+            range(total_token_counts.shape[0]),
+            total_token_counts,
+            color="skyblue",
+            edgecolor="black",
+        )
+        axes.set_xlabel("Token Index")
+        axes.set_ylabel("Number of Occurrences")
+        axes.set_title(f"Token Histogram (N={len(total_token_counts)})")
+        plt.tight_layout()
+        fig.savefig(f"{plot_dir}/token_counts.png")
+        plt.close(fig)
 
 
 def load_tokenizer(model_dir: str) -> OSLTokenizer:
