@@ -9,6 +9,7 @@ import tensorflow as tf
 from tqdm.auto import tqdm
 
 from osl_dynamics.array_ops import get_one_hot
+from osl_dynamics.utils.plotting import rough_square_axes
 
 from osl_foundation.models.base import BaseModel
 from osl_foundation.data import Data
@@ -388,6 +389,64 @@ class OSLTokenizer(BaseModel):
             reconstructed_data = np.concatenate(reconstructed_data)
 
         return reconstructed_data
+
+    def get_token_kernel_response(self, data: Data, input: str = None) -> Tuple[List[np.ndarray], np.ndarray]:
+        """
+        Returns stimulus response of tokens to passed input.
+
+        Parameters
+        ----------
+        data : osl_foundation.data.Data
+            Time series data.
+        input : str, optional
+            Stimulus input to get kernel response for. Should be "impulse" 
+            or "tophat". Defaults to "impulse".
+
+        Returns
+        -------
+        token_response : np.ndarray
+            List of arrays containing a stimulus response for each token.
+        input : np.ndarray
+            Input used to get stimulus response for tokens.
+        """
+
+        token_dim = self.config.model_config.token_dim
+        n_tokens = self.config.model_config.n_tokens
+
+        # Refactor vocabularies
+        if not self.vocab:
+            self.refactor_vocab(data)
+
+        # Make a stimulus 
+        if input in [None, "impulse"]:
+            input = np.zeros(token_dim * 2)
+            input[token_dim] = 1
+        elif input=="tophat":
+            input = np.zeros(token_dim * 6)
+            input[token_dim:token_dim * 5] = 1
+
+        n_samples = input.shape[0]
+
+        # Get stimulus response for each token
+        token_basis_layer = self.model.get_layer("decoder").token_basis_layer
+
+        kernel_response = []
+        for n in range(n_tokens):
+            token_weights = np.zeros((1, n_samples, n_tokens))
+            token_weights[0, :, n] = input
+            response = token_basis_layer(token_weights).numpy()
+            # resposne.shape = (1, n_samples, n_tokens)
+            response = np.squeeze(
+                np.sum(response, axis=2)
+            ) # resposne.shape = (n_samples)
+            kernel_response.append(response)
+
+        # Remap to refactored tokens
+        token_response = [
+            kernel_response[ord] for ord in self.vocab["token_order"]
+        ]
+
+        return token_response, input
     
     def plot_pve(self, data: Data, plot_dir: str = None) -> None:
         """
@@ -450,6 +509,50 @@ class OSLTokenizer(BaseModel):
         axes.set_title(f"Token Histogram (N={len(total_token_counts)})")
         plt.tight_layout()
         fig.savefig(f"{plot_dir}/token_counts.png")
+        plt.close(fig)
+
+    def plot_token_response(self, data: Data, input: str = "impulse", plot_dir: str = None) -> None:
+        """
+        Plots a stimulus response of each token kernel.
+
+        Parameters
+        ----------
+        data : osl_foundation.data.Data
+            Time series data.
+        input : str, optional
+            Stimulus input to get kernel response for. Should be "impulse" 
+            or "tophat". Defaults to "impulse".
+        plot_dir : str, optional
+            Directory to save the plot.
+        """
+
+        if plot_dir is not None:
+            os.makedirs(plot_dir, exist_ok=True)
+
+        # Get token kernel responses
+        token_response, input = self.get_token_kernel_response(data, input)
+
+        # Number of tokens
+        n_tokens = len(token_response)
+        print(f"Number of tokens: {n_tokens}")
+
+        # Limit number of tokens to plot
+        if n_tokens > 30:
+            n_tokens = 30
+            token_response = token_response[:n_tokens] # select top 30 tokens
+
+        # Plot stimulus responses for each token
+        short, long, _ = rough_square_axes(n_tokens)
+        fig, axes = plt.subplots(nrows=short, ncols=long, figsize=(2 * short, 3 * long))
+        axes = axes.flatten()
+        for n, resp in enumerate(token_response):
+            axes[n].plot(resp)
+            axes[n].plot(input, "r")
+            axes[n].set_ylim([-1.1, 1.1])
+        for ax in axes[n_tokens:]:
+            ax.axis("off")
+        plt.tight_layout()
+        fig.savefig(f"{plot_dir}/token_response.png")
         plt.close(fig)
 
 
