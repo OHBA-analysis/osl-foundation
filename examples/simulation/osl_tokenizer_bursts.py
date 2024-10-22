@@ -68,6 +68,7 @@ config = f"""
         lr_decay: 0.1
         multi_gpu: True
 """
+
 # Build model
 model = create_model(config)
 
@@ -78,12 +79,23 @@ model.summary()
 model.fit(data)
 
 # Save model
-os.makedirs("results", exist_ok=True)
+results_dir = "results/figures"
+os.makedirs(results_dir, exist_ok=True)
 model.save("results")
 
-# Percentage of Explained Variance
+# Plot percentage of explained variance
 pve = model.get_pve(data)
 print(f"Percentage of Explained Variance: {pve.mean():.2f}% ({pve.std():.2f}%)")
+model.plot_pve(data, plot_dir=results_dir)
+
+# Plot token counts
+model.plot_token_counts(data, plot_dir=results_dir)
+
+# Plot stimulus response of token kernels
+model.plot_token_response(data, plot_dir=results_dir)
+
+# Plot signals reconstructed from tokenized data
+model.plot_fitted_signal(sess_id=0, plot_dir=results_dir)
 
 # Clean up data directory
 data.delete_dir()
