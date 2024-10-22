@@ -361,6 +361,8 @@ class OSLTokenizer(BaseModel):
         token_basis_layer = self.model.get_layer("decoder").token_basis_layer
 
         def _reconstruct_data(t):
+            n_tokens = self.config.model_config.n_tokens
+
             # Reconstruct for a single array of tokens
             # t.shape = (n_samples, n_channels) or (n_samples,)
 
@@ -369,7 +371,7 @@ class OSLTokenizer(BaseModel):
 
             n_channels = t.shape[1]
             t_one_hot = [
-                get_one_hot(t[:, n], self.config.model_config.n_tokens).astype(
+                get_one_hot(t[:, n], n_tokens).astype(
                     np.float32
                 )  # Shape: (n_samples, n_tokens)
                 for n in range(n_channels)
@@ -397,14 +399,14 @@ class OSLTokenizer(BaseModel):
         return reconstructed_data
 
     def get_token_kernel_response(
-        self, data: Data, input: str = None
-    ) -> Tuple[List[np.ndarray], np.ndarray]:
+        self, data: Data = None, input: str = None
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Returns stimulus response of tokens to passed input.
 
         Parameters
         ----------
-        data : osl_foundation.data.Data
+        data : osl_foundation.data.Data, optional
             Time series data.
         input : str, optional
             Stimulus input to get kernel response for. Should be "impulse"
@@ -413,7 +415,7 @@ class OSLTokenizer(BaseModel):
         Returns
         -------
         token_response : np.ndarray
-            List of arrays containing a stimulus response for each token.
+            An containing a stimulus response for each token.
         input : np.ndarray
             Input used to get stimulus response for tokens.
         """
@@ -423,6 +425,8 @@ class OSLTokenizer(BaseModel):
 
         # Refactor vocabularies
         if not self.vocab:
+            if data is None:
+                raise ValueError("Data is required to refactor vocabularies.")
             self.refactor_vocab(data)
 
         # Make a stimulus
@@ -450,7 +454,9 @@ class OSLTokenizer(BaseModel):
             kernel_response.append(response)
 
         # Remap to refactored tokens
-        token_response = [kernel_response[ord] for ord in self.vocab["token_order"]]
+        token_response = np.array(
+            [kernel_response[ord] for ord in self.vocab["token_order"]]
+        )  # token_response.shape = (n_refactored_tokens, n_samples)
 
         return token_response, input
 
@@ -500,9 +506,8 @@ class OSLTokenizer(BaseModel):
             os.makedirs(plot_dir, exist_ok=True)
 
         # Refactor vocabularies
-        if not self.vocab:
-            self.refactor_vocab(data)
-            total_token_counts = self.vocab["total_token_counts"]
+        self.refactor_vocab(data)
+        total_token_counts = self.vocab["total_token_counts"]
 
         # Plot a histogram of token counts
         fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(8, 6))
