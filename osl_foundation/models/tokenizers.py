@@ -1,5 +1,5 @@
-import logging
 import os
+import logging
 from typing import Tuple, Union, List
 
 import pickle
@@ -8,11 +8,11 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 from tqdm.auto import tqdm
 
+from osl_dynamics.data import Data
 from osl_dynamics.array_ops import get_one_hot
 from osl_dynamics.utils.plotting import rough_square_axes
 
 from osl_foundation.models.base import BaseModel
-from osl_foundation.data import Data
 from osl_foundation.config import Config, get_config
 from osl_foundation.inference.layers import TokenWeightsLayer, MSELossLayer
 
@@ -196,7 +196,7 @@ class OSLTokenizer(BaseModel):
 
         Parameters
         ----------
-        data : osl_foundation.data.Data
+        data : osl_dynamics.data.Data
             The data to tokenize.
         concatenate : bool, optional
             Whether to concatenate the tokens over all sessions, by default False.
@@ -245,7 +245,7 @@ class OSLTokenizer(BaseModel):
 
         Parameters
         ----------
-        data : osl_foundation.data.Data
+        data : osl_dynamics.data.Data
             Time series data.
         sort : bool, optional
             Should we sort the tokens by frequency?, by default True.
@@ -295,7 +295,7 @@ class OSLTokenizer(BaseModel):
 
         Parameters
         ----------
-        data : osl_foundation.data.Data
+        data : osl_dynamics.data.Data
             Time series data.
 
         Returns
@@ -399,18 +399,18 @@ class OSLTokenizer(BaseModel):
         return reconstructed_data
 
     def get_token_kernel_response(
-        self, data: Data = None, input: str = None
+        self, data: Data = None, input: Union[str, np.ndarray] = None
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Returns stimulus response of tokens to passed input.
 
         Parameters
         ----------
-        data : osl_foundation.data.Data, optional
-            Time series data.
-        input : str, optional
-            Stimulus input to get kernel response for. Should be "impulse"
-            or "tophat". Defaults to "impulse".
+        data : osl_dynamics.data.Data, optional
+            Time series data for refactoring tokens.
+        input : Union[str, np.ndarray], optional
+            Stimulus input to get kernel response for. Should be "impulse",
+            "tophat", or a 1D array. Defaults to "impulse".
 
         Returns
         -------
@@ -423,8 +423,8 @@ class OSLTokenizer(BaseModel):
         token_dim = self.config.model_config.token_dim
         n_tokens = self.config.model_config.n_tokens
 
-        # Refactor vocabularies
         if not self.vocab:
+            # Refactor vocabularies
             if data is None:
                 raise ValueError("Data is required to refactor vocabularies.")
             self.refactor_vocab(data)
@@ -436,6 +436,10 @@ class OSLTokenizer(BaseModel):
         elif input == "tophat":
             input = np.zeros(token_dim * 6)
             input[token_dim : token_dim * 5] = 1
+        elif isinstance(input, np.ndarray) and input.ndim != 1:
+            raise ValueError("Input should be a 1D array.")
+        else:
+            raise ValueError("Invalid input.")
 
         n_samples = input.shape[0]
 
@@ -455,7 +459,7 @@ class OSLTokenizer(BaseModel):
 
         # Remap to refactored tokens
         token_response = np.array(
-            [kernel_response[ord] for ord in self.vocab["token_order"]]
+            [kernel_response[order] for order in self.vocab["token_order"]]
         )  # token_response.shape = (n_refactored_tokens, n_samples)
 
         return token_response, input
@@ -466,15 +470,11 @@ class OSLTokenizer(BaseModel):
 
         Parameters
         ----------
-        data : osl_foundation.data.Data
+        data : osl_dynamics.data.Data
             Time series data.
         plot_dir : str, optional
             Directory to save the plot.
         """
-
-        if plot_dir is not None:
-            os.makedirs(plot_dir, exist_ok=True)
-
         # Calculate PVEs across all sessions
         pves = self.get_pve(data)
 
@@ -487,32 +487,34 @@ class OSLTokenizer(BaseModel):
             "Percentage of Variance Explained (Avg: {:.2f}%)".format(pves.mean())
         )
         plt.tight_layout()
-        fig.savefig(f"{plot_dir}/pve_histogram.png")
-        plt.close(fig)
+        if plot_dir is not None:
+            os.makedirs(plot_dir, exist_ok=True)
+            fig.savefig(f"{plot_dir}/pve_histogram.png")
+            plt.close(fig)
 
-    def plot_token_counts(self, data: Data, plot_dir: str = None) -> None:
+    def plot_token_counts(self, data: Data = None, plot_dir: str = None) -> None:
         """
         Plots a histogram of token counts over all sessions.
 
         Parameters
         ----------
-        data : osl_foundation.data.Data
-            Time series data.
+        data : osl_dynamics.data.Data, optional
+            Time series data for refactoring tokens.
         plot_dir : str, optional
             Directory to save the plot.
         """
+        if not self.vocab:
+            # Refactor vocabularies
+            if data is None:
+                raise ValueError("Data is required to refactor vocabularies.")
+            self.refactor_vocab(data)
 
-        if plot_dir is not None:
-            os.makedirs(plot_dir, exist_ok=True)
-
-        # Refactor vocabularies
-        self.refactor_vocab(data)
         total_token_counts = self.vocab["total_token_counts"]
 
         # Plot a histogram of token counts
         fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(8, 6))
         axes.bar(
-            range(total_token_counts.shape[0]),
+            range(1, total_token_counts.shape[0] + 1),
             total_token_counts,
             color="skyblue",
             edgecolor="black",
@@ -521,19 +523,22 @@ class OSLTokenizer(BaseModel):
         axes.set_ylabel("Number of Occurrences")
         axes.set_title(f"Token Histogram (N={len(total_token_counts)})")
         plt.tight_layout()
-        fig.savefig(f"{plot_dir}/token_counts.png")
-        plt.close(fig)
+
+        if plot_dir is not None:
+            os.makedirs(plot_dir, exist_ok=True)
+            fig.savefig(f"{plot_dir}/token_counts.png")
+            plt.close(fig)
 
     def plot_token_response(
-        self, data: Data, input: str = "impulse", plot_dir: str = None
+        self, data: Data = None, input: str = "impulse", plot_dir: str = None
     ) -> None:
         """
         Plots a stimulus response of each token kernel.
 
         Parameters
         ----------
-        data : osl_foundation.data.Data
-            Time series data.
+        data : osl_dynamics.data.Data, optional
+            Time series data for refactoring tokens.
         input : str, optional
             Stimulus input to get kernel response for. Should be "impulse"
             or "tophat". Defaults to "impulse".
@@ -541,15 +546,11 @@ class OSLTokenizer(BaseModel):
             Directory to save the plot.
         """
 
-        if plot_dir is not None:
-            os.makedirs(plot_dir, exist_ok=True)
-
         # Get token kernel responses
         token_response, input = self.get_token_kernel_response(data, input)
 
         # Number of tokens
         n_tokens = len(token_response)
-        print(f"Number of tokens: {n_tokens}")
 
         # Limit number of tokens to plot
         if n_tokens > 30:
@@ -561,21 +562,31 @@ class OSLTokenizer(BaseModel):
         fig, axes = plt.subplots(nrows=short, ncols=long, figsize=(2 * short, 3 * long))
         axes = axes.flatten()
         for n, resp in enumerate(token_response):
-            axes[n].plot(resp)
-            axes[n].plot(input, "r")
+            axes[n].plot(resp, label="Token Response" if n == 0 else "")
+            axes[n].plot(input, "r", label="Input" if n == 0 else "")
             axes[n].set_ylim([-1.1, 1.1])
         for ax in axes[n_tokens:]:
             ax.axis("off")
+        fig.legend()
         plt.tight_layout()
-        fig.savefig(f"{plot_dir}/token_response.png")
-        plt.close(fig)
 
-    def plot_fitted_signal(self, sess_id: int = 0, plot_dir: str = None) -> None:
+        if plot_dir is not None:
+            os.makedirs(plot_dir, exist_ok=True)
+            fig.savefig(f"{plot_dir}/token_response.png")
+            plt.close(fig)
+
+    def plot_fitted_signal(
+        self, data_dir, sess_id: int = 0, plot_dir: str = None
+    ) -> None:
         """
         Plots a signal reconstructed from tokenized data and its token weights.
+        This method assumes that data are stored as {data_dir}/x_{sess_id}.npy,
+        and the ground truth is stored as {data_dir}/ground_truth/true_signal_{sess_id}.npy.
 
         Parameters
         ----------
+        data_dir : str
+            Directory containing the data files.
         sess_id : int, optional
             Session ID to read a data file from. Defaults to 0.
         plot_dir : str, optional
@@ -583,7 +594,7 @@ class OSLTokenizer(BaseModel):
         """
 
         # Get simulated data and its ground truth
-        data_path = f"sim_data/x_{sess_id}.npy"
+        data_path = f"{data_dir}/x_{sess_id}.npy"
         original_data = np.load(data_path)
         true_data = np.load(data_path.replace("x", "ground_truth/true_signal"))
 
@@ -593,7 +604,7 @@ class OSLTokenizer(BaseModel):
         true_data = normalize(true_data)
 
         # Get data reconstructed from tokens
-        data = Data(data_path, use_tfrecord=True)
+        data = Data(data_path)
         tokenized_data, token_weights = self.tokenize_data(data)
         fitted_data = self.reconstruct_data(tokenized_data)
 
@@ -610,8 +621,11 @@ class OSLTokenizer(BaseModel):
             axes[1].plot(token_weights[0][start_idx:end_idx, n, :])
             axes[1].set_title(f"Token Weights")
             plt.tight_layout()
-            fig.savefig(f"{plot_dir}/fitted_signal_sess{sess_id}_ch{n}.png")
-            plt.close(fig)
+
+            if plot_dir is not None:
+                os.makedirs(plot_dir, exist_ok=True)
+                fig.savefig(f"{plot_dir}/fitted_signal_sess{sess_id}_ch{n}.png")
+                plt.close(fig)
 
 
 def load_tokenizer(model_dir: str) -> OSLTokenizer:

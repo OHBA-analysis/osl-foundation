@@ -4,12 +4,17 @@ import os
 import numpy as np
 
 from osl_dynamics.inference import tf_ops
+from osl_dynamics.data import Data
 
 from osl_foundation import create_model
 from osl_foundation.simulation.bursts import Bursts
-from osl_foundation.data import Data
 
 tf_ops.gpu_growth()
+
+# Results directory
+results_dir = "results"
+plot_dir = f"{results_dir}/plots"
+os.makedirs(plot_dir, exist_ok=True)
 
 # Simulation parameters
 simulation_config = {
@@ -46,9 +51,6 @@ data = Data(sorted(glob(f"{simulation_config['data_dir']}/*.npy")), use_tfrecord
 # Standardize the data
 data.standardize()
 
-# # Concatenate the channels
-# data.concatenate_channels()
-
 # Model and training configuration
 config = f"""
     model_config:
@@ -66,7 +68,6 @@ config = f"""
         temperature_annealing:
             n_stages: 40
         lr_decay: 0.1
-        multi_gpu: True
 """
 
 # Build model
@@ -79,23 +80,22 @@ model.summary()
 model.fit(data)
 
 # Save model
-results_dir = "results/figures"
-os.makedirs(results_dir, exist_ok=True)
 model.save("results")
 
+# Refactor tokens
+model.refactor_vocab(data)
+
 # Plot percentage of explained variance
-pve = model.get_pve(data)
-print(f"Percentage of Explained Variance: {pve.mean():.2f}% ({pve.std():.2f}%)")
-model.plot_pve(data, plot_dir=results_dir)
+model.plot_pve(data=data, plot_dir=plot_dir)
 
 # Plot token counts
-model.plot_token_counts(data, plot_dir=results_dir)
+model.plot_token_counts(plot_dir=plot_dir)
 
 # Plot stimulus response of token kernels
-model.plot_token_response(data, plot_dir=results_dir)
+model.plot_token_response(plot_dir=plot_dir)
 
 # Plot signals reconstructed from tokenized data
-model.plot_fitted_signal(sess_id=0, plot_dir=results_dir)
+model.plot_fitted_signal(simulation_config["data_dir"], plot_dir=plot_dir)
 
 # Clean up data directory
 data.delete_dir()

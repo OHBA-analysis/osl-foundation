@@ -3,9 +3,9 @@ from typing import List
 import tensorflow as tf
 import numpy as np
 
+from osl_dynamics.data import Data
 from osl_dynamics.utils.misc import get_argument, replace_argument
 
-from osl_foundation.data import Data
 from osl_foundation.models.base import BaseModel
 from osl_foundation.models.tokenizers import OSLTokenizer, load_tokenizer
 from osl_foundation.config.generator_config import Label

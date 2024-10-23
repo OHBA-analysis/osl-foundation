@@ -4,10 +4,10 @@ import os
 import numpy as np
 
 from osl_dynamics.inference import tf_ops
+from osl_dynamics.data import Data
 
 from osl_foundation import create_model, load_model
 from osl_foundation.simulation.bursts import Bursts
-from osl_foundation.data import Data
 
 tf_ops.gpu_growth()
 
