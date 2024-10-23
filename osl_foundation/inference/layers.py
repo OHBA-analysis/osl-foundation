@@ -57,22 +57,22 @@ class TokenWeightsLayer(tf.keras.layers.Layer):
         ell = self.norm_layer(ell)
         # Shape: (batch_size * n_channels, sequence_length, n_tokens)
 
-        theta_weight = tf.nn.softmax(ell, axis=2)
-        # Shape: (batch_size * n_channels, sequence_length, n_tokens)
-
         if training:
             # Sample from gumbel softmax parameterized by ell
             dist = tfp.distributions.Gumbel(0, 1)
             theta_sample = tf.argmax(dist.sample() + ell, axis=2)
             theta_sample = tf.one_hot(theta_sample, self.output_dim)
 
+            #  Annealing
+            theta_weight = tf.nn.softmax(ell, axis=2)
+            # Shape: (batch_size * n_channels, sequence_length, n_tokens)
+
             token_weight = (
                 self.temperature * theta_weight + (1 - self.temperature) * theta_sample
             )
             # Shape: (batch_size * n_channels, sequence_length, n_tokens)
         else:
-            token_weight = theta_weight
-
+            token_weight = tf.one_hot(tf.argmax(ell, axis=2), self.output_dim)
         return token_weight
 
 

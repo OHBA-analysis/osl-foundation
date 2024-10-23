@@ -7,11 +7,11 @@ import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
 
+from osl_dynamics.data import Data
 from osl_dynamics.inference import initializers as osld_initializers
 from osl_dynamics.utils.misc import get_argument, replace_argument
 
 from osl_foundation.config import Config
-from osl_foundation.data.base import Data
 
 _logger = logging.getLogger("osl-foundation")
 
