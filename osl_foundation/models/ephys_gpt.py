@@ -1,6 +1,7 @@
-from typing import List
+from typing import List, Union
 
 import tensorflow as tf
+import tensorflow_probability as tfp
 import numpy as np
 
 from osl_dynamics.data import Data
@@ -14,6 +15,7 @@ from osl_foundation.inference.layers import (
     MultiHeadPASSTALayer,
     NormalizationLayer,
 )
+from osl_foundation.utils.sampling import sample_from_logits
 
 
 class ShiftTokenLayer(tf.keras.layers.Layer):
@@ -326,18 +328,6 @@ class DecoderLayer(tf.keras.layers.Layer):
                     within_channel_attention_dropout,
                 )
             )
-        # for _ in range(n_layers - 1):
-        #     self.attention_layers.append(
-        #         MultiHeadSSTALayer(
-        #             n_heads,
-        #             model_dim,
-        #             embedding_dim,
-        #             n_channels,
-        #             latent_sequence_length,
-        #             channel_attention_dropout,
-        #             within_channel_attention_dropout,
-        #         )
-        #     )
 
         # Normalization layers
 
@@ -484,6 +474,90 @@ class EphysGPT(BaseModel):
             )
 
         super().fit(*args, **kwargs)
+
+    def generate_tokens(
+        self,
+        n_samples: int,
+        method: str,
+        p: float,
+        k: int,
+        batch_size: int = None,
+        prompt: np.ndarray = None,
+    ):
+        """
+        Generate tokens using the model.
+
+        Parameters
+        ----------
+        n_samples : int
+            Number of samples to generate.
+        method : str
+            Method for generating the tokens.
+            Options are 'top_k', 'top_p', 'argmax'.
+        p : float
+            Top p proportion of values to keep.
+        k : int
+            Top k number of values to keep.
+        batch_size : int, optional
+            Batch size for generating the samples.
+            If None, batch size in the config is used.
+        prompt : str or np.ndarray, optional
+            Prompt to start the generation.
+            If None, a random sequence is used.
+            If np.ndarray, the shape must be (sequence_length, n_channels).
+
+        Returns
+        -------
+        prompt : np.ndarray
+            Generated tokens. Shape is (batch_size, n_samples, n_channels).
+        """
+        batch_size = batch_size or self.config.training_config.batch_size
+        n_channels = self.config.model_config.n_channels
+        sequence_length = self.config.model_config.sequence_length
+        n_tokens = self.config.model_config.n_tokens
+
+        # ---------- Helper functions ---------- #
+        def _random_tokens() -> np.ndarray:
+            tokens = np.random.randint(
+                n_tokens, size=(batch_size, sequence_length, n_channels)
+            )
+            return tokens
+
+        # ---------- Validation ---------- #
+        if method not in ["top_k", "top_p", "argmax"]:
+            raise ValueError(
+                f"Invalid method {method}. Options are 'top_k', 'top_p', 'argmax'."
+            )
+
+        if prompt is None:
+            prompt = _random_tokens()
+        elif isinstance(prompt, np.ndarray):
+            if prompt.shape != (sequence_length, n_channels):
+                raise ValueError(
+                    f"Prompt must have shape (sequence_length, n_channels)."
+                )
+            prompt = np.array([prompt] * batch_size)
+        else:
+            raise ValueError(f"Prompt must be a numpy array.")
+
+        # ---------- Generate tokens ---------- #
+        prompt = tf.constant(prompt, dtype=tf.int32)
+        for _ in range(n_samples):
+            place_holder = prompt[:, -sequence_length:]
+            # place_holder.shape = (batch_size, sequence_length, n_channels)
+
+            # Prediction logits for the next token
+            logits = self.model([place_holder])[1][:, -1]
+            # logits.shape = (batch_size, n_channels, n_tokens)
+
+            # Sample the next token
+            next_token = sample_from_logits(logits=logits, method=method, p=p, k=k)
+            # next_token.shape = (batch_size, n_channels)
+
+            # Add the next token to the prompt
+            prompt = tf.concat([prompt, tf.expand_dims(next_token, 1)], axis=1)
+
+        return prompt.numpy()[:, sequence_length:]
 
     def _load_tokenizer(self) -> OSLTokenizer:
         """Load a trained tokenizer."""
