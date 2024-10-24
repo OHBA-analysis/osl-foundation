@@ -37,7 +37,7 @@ def sample_from_logits(
     else:
         raise ValueError(f"Unknown sampling method: {method}")
 
-    return sampled_tokens
+    return tf.cast(sampled_tokens, tf.int32)
 
 
 def top_k_sampling(logits: tf.Tensor, k: int) -> tf.Tensor:

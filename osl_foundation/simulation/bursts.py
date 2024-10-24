@@ -111,6 +111,7 @@ class Bursts:
             # Shape: (n_modes, n_channels)
             else:
                 self.n_channels_per_mode = None
+                self.n_modes = channel_activity.shape[0]
         else:
             channel_activity = None
 

@@ -43,7 +43,7 @@ bursts = Bursts(**simulation_config)
 bursts.simulate_and_save()
 
 # Plot summary of the simulated data
-bursts.plot_data()
+bursts.plot_data(plot_dir=simulation_config["data_dir"])
 
 # Load the simulated data
 data = Data(sorted(glob(f"{simulation_config['data_dir']}/*.npy")), use_tfrecord=True)
