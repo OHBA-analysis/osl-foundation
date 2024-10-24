@@ -255,6 +255,7 @@ class BaseModel:
         ax.set_title("Training History")
         if plot_dir is not None:
             fig.savefig(f"{plot_dir}/history_{keyword}.png")
+            plt.close(fig)
 
     def summary(self, **kwargs) -> None:
         """Print a summary of the model."""

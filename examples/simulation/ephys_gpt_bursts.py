@@ -2,6 +2,7 @@ from glob import glob
 import os
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 from osl_dynamics.inference import tf_ops
 from osl_dynamics.data import Data
@@ -10,6 +11,14 @@ from osl_foundation import create_model, load_model
 from osl_foundation.simulation.bursts import Bursts
 
 tf_ops.gpu_growth()
+
+# Results directory
+results_dir = "results"
+os.makedirs(results_dir, exist_ok=True)
+
+simulate_data = True
+train_tokenizer = True
+train_generator = True
 
 # Simulation parameters
 simulation_config = {
@@ -34,11 +43,12 @@ simulation_config["n_samples"] = 5 * 60 * simulation_config["sampling_frequency"
 
 bursts = Bursts(**simulation_config)
 
-# Simulate and Save data
-bursts.simulate_and_save()
+if simulate_data:
+    # Simulate and Save data
+    bursts.simulate_and_save()
 
 # Plot summary of the simulated data
-bursts.plot_data()
+bursts.plot_data(plot_dir=simulation_config["data_dir"])
 
 # Load the simulated data
 data = Data(
@@ -51,7 +61,6 @@ data = Data(
 # Standardize the data
 data.standardize()
 
-train_tokenizer = True
 # Model and training configuration
 if train_tokenizer:
     config = f"""
@@ -84,12 +93,14 @@ if train_tokenizer:
     os.makedirs("model/tokenizer", exist_ok=True)
     tokenizer.save("model/tokenizer")
 
-    # Percentage of Explained Variance
-    pve = tokenizer.get_pve(data)
-    print(f"Percentage of Explained Variance: {pve.mean():.2f}% ({pve.std():.2f}%)")
+    # Plot results of tokenizer
+    tokenizer.refactor_vocab(data)
+    tokenizer.plot_pve(data=data, plot_dir=results_dir)
+    tokenizer.plot_token_counts(plot_dir=results_dir)
+    tokenizer.plot_token_response(plot_dir=results_dir)
+    tokenizer.plot_fitted_signal(simulation_config["data_dir"], plot_dir=results_dir)
 
 
-train_generator = True
 if train_generator:
     generator_config = f"""
         model_config:
@@ -101,8 +112,8 @@ if train_generator:
                 embedding_dim: 256
                 n_tokens: 128
             decoder_parameters:
-                n_layers: 2
-                n_heads: 4
+                n_layers: 4
+                n_heads: 8
                 model_dim: 256
                 latent_sequence_length: 128
                 n_patches: 64
@@ -111,27 +122,52 @@ if train_generator:
                 channel_attention_dropout: 0.0
                 within_channel_attention_dropout: 0.0
                 feed_forward_dim: 64
-                feed_forward_activation: relu
+                feed_forward_activation: selu
                 dropout: 0.0
+                norm_type: group
+                n_groups: 8
             loss_parameters:
                 loss_sequence_length: 64
         training_config:
             optimizer:
-                learning_rate: 0.001
+                learning_rate: 0.0001
             batch_size: 32
-            n_epochs: 20
+            n_epochs: 30
             lr_decay: 0.1
     """
     generator = create_model(generator_config)
     generator.summary()
 
-    generator.fit(data, validation_split=0.1, use_tfrecord=True, n_jobs=8)
+    generator.fit(
+        data,
+        validation_split=0.1,
+        use_tfrecord=True,
+        n_jobs=8,
+        step_size=generator.config.model_config.sequence_length // 4,
+    )
     os.makedirs("model/ephys_gpt", exist_ok=True)
     generator.save("model/ephys_gpt")
 else:
     generator = load_model("model/ephys_gpt")
 
-# TODO: Generate data
+# Plot history
+generator.plot_history(plot_dir=results_dir, keyword="loss")
+generator.plot_history(plot_dir=results_dir, keyword="accuracy")
+
+# Generate data
+generated_data = np.concatenate(
+    generator.generate_data(n_samples=2048, method="top_p", p=0.8, batch_size=64),
+    axis=0,
+)
+
+# Plot PSD of generated data
+fig, axes = plt.subplots(n_channels, 1, figsize=(15, 5 * n_channels))
+for i in range(n_channels):
+    axes[i].psd(generated_data[:, i], Fs=100, NFFT=1024, color="black")
+    axes[i].set_ylabel(f"Channel {i}")
+fig.tight_layout()
+fig.savefig(f"{results_dir}/psd_generated_data.png")
+plt.close(fig)
 
 # Clean up directories
 data.delete_dir()

@@ -231,8 +231,7 @@ class Bursts:
             List of channels to plot. Default: all channels.
         """
         data_files = [f"{self.data_dir}/x_{i}.npy" for i in range(self.n_subjects)]
-        plot_dir = plot_dir or self.data_dir
-        os.makedirs(plot_dir, exist_ok=True)
+
         mode_timecourses = np.load(f"{self.data_dir}/ground_truth/mode_tcs.npy")
 
         # Plot mode timecourses
@@ -252,7 +251,10 @@ class Bursts:
 
         fig.tight_layout()
         fig.suptitle("Mode timecourses")
-        fig.savefig(f"{plot_dir}/mode_tcs.png")
+        if plot_dir is not None:
+            os.makedirs(plot_dir, exist_ok=True)
+            fig.savefig(f"{plot_dir}/mode_tcs.png")
+            plt.close(fig)
 
         # Plot data
         sub1 = 0
@@ -307,9 +309,10 @@ class Bursts:
         fig.tight_layout()
         fig.suptitle("Simulated data")
         plt.xlabel("Time (s)")
-
         plt.yticks([])
-        fig.savefig(f"{plot_dir}/data_chan.png")
+        if plot_dir is not None:
+            fig.savefig(f"{plot_dir}/data_chan.png")
+            plt.close(fig)
 
         # Plot PSD
         fig, axes = plt.subplots(
@@ -337,7 +340,9 @@ class Bursts:
         axes[0].set_title("PSD")
         fig.tight_layout()
         fig.suptitle("Power spectral density")
-        fig.savefig(f"{plot_dir}/psd.png")
+        if plot_dir is not None:
+            fig.savefig(f"{plot_dir}/psd.png")
+            plt.close(fig)
 
         # Plot channel activity
         fig, axes = plt.subplots(figsize=(15, 5))
@@ -359,6 +364,8 @@ class Bursts:
         fig.tight_layout()
         fig.suptitle("True frequencies")
         fig.colorbar(mat, ax=axes)
-        fig.savefig(f"{plot_dir}/true_freqs.png")
+        if plot_dir is not None:
+            fig.savefig(f"{plot_dir}/true_freqs.png")
+            plt.close(fig)
 
         _logger.info(f"Plots saved to {plot_dir}")
