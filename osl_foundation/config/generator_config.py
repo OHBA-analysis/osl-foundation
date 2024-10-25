@@ -20,7 +20,8 @@ class Label:
         assert self.n_classes is not None, "n_classes must be set"
 
         assert self.n_classes > 0, "n_classes must be greater than 0"
-        assert self.label_dim > 0, "label_dim must be greater than 0"
+        if self.label_dim is not None:
+            assert self.label_dim > 0, "label_dim must be greater than 0"
 
 
 @dataclass

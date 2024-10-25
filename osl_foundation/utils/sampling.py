@@ -127,7 +127,9 @@ def top_p_sampling(logits: tf.Tensor, p: float) -> tf.Tensor:
     cutoff_indices = tf.maximum(cutoff_indices, 1)
 
     # Mask logits beyond the cutoff index
-    mask = tf.sequence_mask(cutoff_indices, maxlen=tf.shape(logits)[-1], dtype=tf.bool)
+    mask = tf.logical_not(
+        tf.sequence_mask(cutoff_indices, maxlen=tf.shape(logits)[-1], dtype=tf.bool)
+    )
     masked_logits = tf.where(mask, float("-inf"), logits)
 
     # Sample from the masked logits

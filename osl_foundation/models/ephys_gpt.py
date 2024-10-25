@@ -186,7 +186,7 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
     def call(self, inputs, **kwargs):
         data, extra_labels = inputs
         # data.shape = (batch_size, sequence_length, n_channels)
-        # extra_labels[0].shape = (batch_size, sequence_length, n_channels)
+        # extra_labels[0].shape = (batch_size, sequence_length)
 
         # ---------- Token embeddings ---------- #
         x = data
@@ -223,6 +223,11 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
             self.extra_embedding_layers,
             self.extra_embedding_output_layers,
         ):
+            # label.shape = (batch_size, sequence_length)
+
+            label = tf.expand_dims(label, -1)
+            # label.shape = (batch_size, sequence_length, 1)
+
             embeddings += output_layer(layer(label))
 
         return embeddings
@@ -317,7 +322,7 @@ class DecoderLayer(tf.keras.layers.Layer):
                 MultiHeadPASSTALayer(
                     n_heads,
                     model_dim,
-                    embedding_dim,
+                    model_dim,
                     n_channels,
                     latent_sequence_length,
                     latent_sequence_length,
@@ -354,6 +359,7 @@ class DecoderLayer(tf.keras.layers.Layer):
             )
             for _ in range(n_layers)
         ]
+        self.first_residual_layer = tf.keras.layers.Dense(model_dim)
 
     def call(self, inputs, training=None, **kwargs):
         # inputs.shape = (batch_size, sequence_length, n_channels, embedding_dim)
@@ -367,6 +373,8 @@ class DecoderLayer(tf.keras.layers.Layer):
             x = self.attention_layers[i](x, training=training)
 
             # Add to residual
+            if i == 0:
+                x_residual = self.first_residual_layer(x_residual)
             x = x + x_residual[:, -tf.shape(x)[1] :]
 
             # Normalization 1
@@ -437,6 +445,7 @@ class EphysGPT(BaseModel):
             use_tfrecord=use_tfrecord,
             n_jobs=n_jobs,
         )
+        tokenized_x.session_labels = x.session_labels
 
         validation_split = get_argument(
             self.model.fit, "validation_split", args, kwargs
@@ -494,7 +503,7 @@ class EphysGPT(BaseModel):
         for label in config.extra_labels:
             extra_labels.append(
                 tf.keras.layers.Input(
-                    shape=(config.sequence_length, config.n_channels),
+                    shape=(config.sequence_length,),
                     dtype=tf.int32,
                     name=label.name,
                 )
@@ -573,8 +582,10 @@ class EphysGPT(BaseModel):
         method: str,
         p: float = None,
         k: int = None,
+        temperature: float = 1.0,
         batch_size: int = None,
         prompt: np.ndarray = None,
+        extra_labels: List[np.ndarray] = None,
     ):
         """
         Generate tokens using the model.
@@ -590,6 +601,8 @@ class EphysGPT(BaseModel):
             Top p proportion of values to keep. Must be specified if method is 'top_p'.
         k : int, optional
             Top k number of values to keep. Must be specified if method is 'top_k'.
+        temperature : float, optional
+            Temperature for sampling from the logits.
         batch_size : int, optional
             Batch size for generating the samples.
             If None, batch size in the config is used.
@@ -598,6 +611,8 @@ class EphysGPT(BaseModel):
             If None, a random sequence is used.
             If np.ndarray, the shape must be (sequence_length, n_channels)
             or (batch_size, sequence_length, n_channels).
+        extra_labels : List[np.ndarray], optional
+            List of extra labels. Each must have shape (batch_size,).
 
         Returns
         -------
@@ -635,6 +650,15 @@ class EphysGPT(BaseModel):
         else:
             raise ValueError(f"Prompt must be a numpy array.")
 
+        if extra_labels is None:
+            extra_labels = []
+        for i in range(len(extra_labels)):
+            if extra_labels[i].shape != (batch_size,):
+                raise ValueError(f"Extra label {i} must have shape (batch_size,).")
+            extra_labels[i] = np.broadcast_to(
+                extra_labels[i][:, None], (batch_size, sequence_length)
+            )
+
         # ---------- Generate tokens ---------- #
         prompt = tf.constant(prompt, dtype=tf.int32)
         for _ in trange(n_samples, desc="Generating tokens"):
@@ -642,7 +666,7 @@ class EphysGPT(BaseModel):
             # place_holder.shape = (batch_size, sequence_length, n_channels)
 
             # Prediction logits for the next token
-            logits = self.model([place_holder])[1][:, -1]
+            logits = self.model([place_holder] + extra_labels)[1][:, -1] / temperature
             # logits.shape = (batch_size, n_channels, n_tokens)
 
             # Sample the next token
