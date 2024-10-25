@@ -22,7 +22,7 @@ class TemperatureAnnealingCallback(tf.keras.callbacks.Callback):
         n_stages: int,
         n_epochs: int,
         start_temperature: float = 1.0,
-        end_temperature: float = 0.0,
+        end_temperature: float = 1e-3,
     ):
         self.n_stages = n_stages
         self.n_epochs = n_epochs
@@ -33,6 +33,8 @@ class TemperatureAnnealingCallback(tf.keras.callbacks.Callback):
 
     def on_epoch_begin(self, epoch, logs=None):
         stage = epoch // self.n_epochs_per_stage
+        if stage >= self.n_stages:
+            stage = self.n_stages - 1
         temperature = self.temperatures[stage]
 
         token_weights_layer = self.model.get_layer("token_weights")

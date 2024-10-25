@@ -113,6 +113,7 @@ class BaseModel:
                     step_size=step_size,
                     drop_last_batch=drop_last_batch,
                     validation_split=validation_split,
+                    overwrite=True,
                 )
             else:
                 outputs = inputs.dataset(

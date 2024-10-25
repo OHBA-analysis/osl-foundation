@@ -173,11 +173,14 @@ def get_training_config(config: dict) -> BaseTrainingConfig:
         start_temperature = config["temperature_annealing"].get(
             "start_temperature", 1.0
         )
-        end_temperature = config["temperature_annealing"].get("end_temperature", 0.0)
+        end_temperature = config["temperature_annealing"].get("end_temperature", 1e-3)
+        n_annealing_epochs = config["temperature_annealing"].get(
+            "n_annealing_epochs", training_config.n_epochs
+        )
         callbacks.append(
             TemperatureAnnealingCallback(
                 n_stages=n_stages,
-                n_epochs=training_config.n_epochs,
+                n_epochs=n_annealing_epochs,
                 start_temperature=start_temperature,
                 end_temperature=end_temperature,
             )
