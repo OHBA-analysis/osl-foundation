@@ -450,10 +450,8 @@ class OSLTokenizer(BaseModel):
         for n in range(n_tokens):
             token_weights = np.zeros((1, n_samples, n_tokens))
             token_weights[0, :, n] = input
-            response = token_basis_layer(token_weights).numpy()
-            # resposne.shape = (1, n_samples, n_tokens)
             response = np.squeeze(
-                np.sum(response, axis=2)
+                token_basis_layer(token_weights).numpy()
             )  # resposne.shape = (n_samples)
             kernel_response.append(response)
 

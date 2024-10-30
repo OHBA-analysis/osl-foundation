@@ -1,3 +1,8 @@
+# Temporary files
 __pycache__
 __pycache__/*
+*.log
+.DS_Store
+
+# Package files
 *.egg-info
