@@ -14,8 +14,7 @@ from osl_dynamics.utils.plotting import rough_square_axes
 
 from osl_foundation.models.base import BaseModel
 from osl_foundation.config import Config, get_config
-from osl_foundation.inference.layers import rnn_layer, TokenWeightsLayer, MSELossLayer
-from osl_foundation.utils.testing import create_random_tokens, get_dataset_size
+from osl_foundation.inference.layers import TokenWeightsLayer, MSELossLayer
 
 _logger = logging.getLogger("osl-foundation")
 
@@ -212,10 +211,11 @@ class OSLTokenizer(BaseModel):
 
         dataset = self.make_dataset(data, shuffle=False, concatenate=False)
 
-        # ---------- Helper functions ---------- #
         def _tokenize_data(d):
             # Tokenize for a single session
-            tw = [self.model(x)[2] for x in d]
+            tw = []
+            for x in d:
+                tw.append(self.model(x)[2])
             # Concatenate over batches and sequences
             tw = np.concatenate(np.concatenate(tw))
             # tw.shape = (n_samples, n_channels, n_tokens)
@@ -239,7 +239,6 @@ class OSLTokenizer(BaseModel):
         data: Data,
         sort: bool = True,
         trim: bool = True,
-        random_token: bool = False,
     ) -> None:
         """
         Refactor the vocabulary based on the data.
@@ -252,18 +251,12 @@ class OSLTokenizer(BaseModel):
             Should we sort the tokens by frequency?, by default True.
         trim : bool, optional
             Should we remove tokens with zero frequency?, by default True.
-        random_token : bool, optional
-            Whether to generate random tokens, by default False.
         """
 
         config = self.config.model_config
 
         _logger.info("Refactoring vocabulary...")
-        tokens = self.tokenize_data(data)
-        if random_token:
-            dataset = self.make_dataset(data, shuffle=False, concatenate=False)
-            dataset_size = get_dataset_size(config, dataset)
-            tokens = create_random_tokens(config.n_tokens, size=dataset_size)
+        tokens = self.tokenize_data(data)[0]
 
         # Count the tokens across samples and channels for each session
         token_counts = np.array(
@@ -499,9 +492,7 @@ class OSLTokenizer(BaseModel):
             fig.savefig(f"{plot_dir}/pve_histogram.png")
             plt.close(fig)
 
-    def plot_token_counts(
-        self, data: Data = None, random_token: bool = False, plot_dir: str = None
-    ) -> None:
+    def plot_token_counts(self, data: Data = None, plot_dir: str = None) -> None:
         """
         Plots a histogram of token counts over all sessions.
 
@@ -509,8 +500,6 @@ class OSLTokenizer(BaseModel):
         ----------
         data : osl_dynamics.data.Data, optional
             Time series data for refactoring tokens.
-        random_token : bool, optional
-            Whether to generate random tokens, by default False.
         plot_dir : str, optional
             Directory to save the plot.
         """
@@ -518,7 +507,7 @@ class OSLTokenizer(BaseModel):
             # Refactor vocabularies
             if data is None:
                 raise ValueError("Data is required to refactor vocabularies.")
-            self.refactor_vocab(data, random_token=random_token)
+            self.refactor_vocab(data)
 
         total_token_counts = self.vocab["total_token_counts"]
 
@@ -587,11 +576,7 @@ class OSLTokenizer(BaseModel):
             plt.close(fig)
 
     def plot_fitted_signal(
-        self,
-        data_dir,
-        sess_id: int = 0,
-        random_token: bool = False,
-        plot_dir: str = None,
+        self, data_dir, sess_id: int = 0, plot_dir: str = None
     ) -> None:
         """
         Plots a signal reconstructed from tokenized data and its token weights.
@@ -604,8 +589,6 @@ class OSLTokenizer(BaseModel):
             Directory containing the data files.
         sess_id : int, optional
             Session ID to read a data file from. Defaults to 0.
-        random_token : bool, optional
-            Whether to generate random tokens, by default False.
         plot_dir : str, optional
             Directory to save the plot.
         """
@@ -623,12 +606,6 @@ class OSLTokenizer(BaseModel):
         # Get data reconstructed from tokens
         data = Data(data_path)
         tokenized_data, token_weights = self.tokenize_data(data)
-        if random_token:
-            config = self.config.model_config
-            dataset = self.make_dataset(data, shuffle=False, concatenate=False)
-            dataset_size = get_dataset_size(config, dataset)
-            tokenized_data = create_random_tokens(config.n_tokens, size=dataset_size)
-            token_weights = None
         fitted_data = self.reconstruct_data(tokenized_data)
 
         # Plot data signals and token weights
@@ -641,9 +618,8 @@ class OSLTokenizer(BaseModel):
             axes[0].plot(fitted_data[start_idx:end_idx, n], label="Fitted")
             axes[0].set_title(f"Channel {n}: Data Signals")
             axes[0].legend()
-            if token_weights is not None:
-                axes[1].plot(token_weights[0][start_idx:end_idx, n, :])
-                axes[1].set_title(f"Token Weights")
+            axes[1].plot(token_weights[0][start_idx:end_idx, n, :])
+            axes[1].set_title(f"Token Weights")
             plt.tight_layout()
 
             if plot_dir is not None:

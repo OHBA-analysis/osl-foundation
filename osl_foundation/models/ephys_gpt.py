@@ -16,7 +16,7 @@ from osl_foundation.inference.layers import (
     NormalizationLayer,
 )
 from osl_foundation.utils.sampling import sample_from_logits
-from osl_foundation.utils.testing import create_random_tokens, get_dataset_size
+from osl_foundation.utils.testing import create_random_tokens
 
 
 class ShiftTokenLayer(tf.keras.layers.Layer):
@@ -487,85 +487,57 @@ class EphysGPT(BaseModel):
 
     def fit_random_tokens(
         self,
-        *args,
+        n_samples: int,
+        validation_split: float,
         use_tfrecord: bool = False,
-        n_jobs: int = 1,
-        step_size: int = None,
-        **kwargs,
     ) -> None:
         """
         First generates random tokens and then fits the model on them.
 
         Parameters
         ----------
-        *args : list
-            Positional arguments to pass to the model's fit method.
+        n_samples : int
+            Number of samples per sequence to generate.
+        validation_split : float
+            Fraction of the data to use for validation.
         use_tfrecord : bool, optional
             Whether to use tfrecord for the tokenized data.
-        n_jobs : int, optional
-            Number of jobs to use for the tokenized data.
-        step_size : int, optional
-            Step size when creating the dataset.
-        **kwargs : dict
-            Keyword arguments to pass to the model's fit method.
         """
-        x = get_argument(self.model.fit, "x", args, kwargs)
         config = self.config.model_config
 
+        # This function is for testing purposes only
+        # Raise error if extra labels are present
+        if config.extra_labels:
+            raise ValueError("Extra labels are not supported for fit_random_tokens().")
+
+        # validation_split cannot be None
+        if validation_split is None:
+            raise ValueError("validation_split cannot be None.")
+
         # Generate random tokens
-        dataset = self.tokenizer.make_dataset(x, shuffle=False, concatenate=False)
-        dataset_size = get_dataset_size(config, dataset)
-        random_tokens = create_random_tokens(config.n_tokens, size=dataset_size)
+        random_tokens = create_random_tokens(
+            config.n_tokens, n_samples, config.n_channels
+        )
 
         # Build Data object
-        random_tokens = Data(
-            random_tokens,
-            store_dir=f"{getattr(x, 'store_dir', 'tmp')}/random_tokens",
-            use_tfrecord=use_tfrecord,
-            n_jobs=n_jobs,
-        )
-        random_tokens.session_labels = x.session_labels
-
-        validation_split = get_argument(
-            self.model.fit, "validation_split", args, kwargs
+        data = Data(
+            random_tokens, store_dir="tmp/random_tokens", use_tfrecord=use_tfrecord
         )
         dataset = self.make_dataset(
-            random_tokens,
+            data,
             shuffle=True,
             concatenate=True,
-            step_size=step_size,
             drop_last_batch=True,
             validation_split=validation_split,
         )
-        if validation_split is None:
-            args, kwargs = replace_argument(
-                self.model.fit,
-                "x",
-                dataset,
-                args,
-                kwargs,
-            )
-        else:
-            args, kwargs = replace_argument(
-                self.model.fit,
-                "x",
-                dataset[0],
-                args,
-                kwargs,
-            )
-            args, kwargs = replace_argument(
-                self.model.fit,
-                "validation_data",
-                dataset[1],
-                args,
-                kwargs,
-            )
-
-        super().fit(*args, **kwargs)
+        super().fit(dataset[0], validation_data=dataset[1])
+        data.delete_dir()
 
     def _load_tokenizer(self) -> OSLTokenizer:
         """Load a trained tokenizer."""
         tokenizer_path = self.config.model_config.tokenizer_path
+        if tokenizer_path is None:
+            return None
         return load_tokenizer(tokenizer_path)
 
     def _build_model(self) -> tf.keras.Model:

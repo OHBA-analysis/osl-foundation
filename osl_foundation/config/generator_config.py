@@ -67,7 +67,10 @@ class EphysGPTModelConfig(BaseModelConfig):
         self._validate_loss_parameters()
 
     def _validate_tokenizer_path(self) -> None:
-        assert self.tokenizer_path is not None, "tokenizer_path must be set"
+        if self.tokenizer_path is not None:
+            assert isinstance(
+                self.tokenizer_path, str
+            ), "tokenizer_path must be a string"
 
     def _validate_input_parameters(self) -> None:
         assert self.embedding_dim is not None, "embedding_dim must be set"

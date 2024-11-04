@@ -40,45 +40,25 @@ def get_dataset_size(
     return dataset_size
 
 
-def create_random_tokens(
-    min_val: int,
-    max_val: int = None,
-    size: Union[int, tuple] = (1,),
-    concatenate: bool = False,
-) -> Union[np.ndarray, List[np.ndarray]]:
+def create_random_tokens(n_tokens: int, n_samples: int, n_channels: int) -> np.ndarray:
     """
-    Creates random token array for a given size. Wrapper around np.random.randint.
+    Creates random token array. This is a wrapper around np.random.randint.
 
     Parameters
     ----------
-    min_val : int
-        The minimum value of the random tokens to sample.
-    max_val : int, optional
-        The maximum value of the random tokens to sample. Defaults to None, where
-        tokens are sampled from [0, min_val).
-    size : Union[int, tuple], optional
-        Array size of the random tokens to create. By default, a single
-        value is returned.
-    concatenate : bool, optional
-        Whether to concatenate the tokens over all sessions, by default False.
+    n_tokens : int
+        Number of tokens to draw from.
+    n_samples : int
+        Number of samples to draw.
+    n_channels : int
+        Number of channels.
 
     Returns
     -------
-    random_tokens : Union[np.ndarray, List[np.ndarray]]
+    random_tokens : np.ndarray
         Random tokens drawn from the discrete uniform distribution.
+        Shape is (n_samples, n_channels).
     """
-
-    # Standardise the size to a list of tuples
-    if isinstance(size, int):
-        size = [(size,)]
-    if isinstance(size, tuple):
-        size = [size]
-
-    # Generate random tokens
-    random_tokens = [
-        np.random.randint(low=min_val, high=max_val, size=sz) for sz in size
-    ]
-    if concatenate:
-        random_tokens = np.concatenate(random_tokens)
+    random_tokens = np.random.randint(n_tokens, size=(n_samples, n_channels))
 
     return random_tokens
