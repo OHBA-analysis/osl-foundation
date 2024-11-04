@@ -22,30 +22,30 @@ generator_config = f"""
     model_config:
         name: ephys_gpt
         tokenizer_path: {tokenizer_dir}
-        sequence_length: 256
+        sequence_length: 80
         n_channels: {data.n_channels}
         input_parameters:
-            embedding_dim: 32
+            embedding_dim: 100
             n_tokens: 128
-            token_embedding_dim: 16
-            pos_embedding_dim: 16
-            channel_embedding_dim: 8
+            token_embedding_dim: 100
+            pos_embedding_dim: 100
+            channel_embedding_dim: 100
         decoder_parameters:
             n_layers: 4
-            n_heads: 8
-            model_dim: 256
-            latent_sequence_length: 128
-            n_patches: 64
+            n_heads: 4
+            model_dim: 100
+            latent_sequence_length: 40
+            n_patches: 20
             patch_length: 4
-            unpatched_length: 32
+            unpatched_length: 16
             channel_attention_dropout: 0.0
             within_channel_attention_dropout: 0.0
-            feed_forward_dim: 256
+            feed_forward_dim: 100
             dropout: 0.2
-            norm_type: group
-            n_groups: 8
+            # norm_type: group
+            # n_groups: 8
         loss_parameters:
-            loss_sequence_length: 64
+            loss_sequence_length: 8
     training_config:
         optimizer:
             learning_rate: 0.0001

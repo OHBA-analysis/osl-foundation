@@ -26,9 +26,9 @@ prompt = np.array(
 )
 generated_data = np.concatenate(
     generator.generate_data(
-        n_samples=8192,
+        n_samples=2048,
         method="top_p",
-        p=0.9,
+        p=0.8,
         prompt=prompt,
         batch_size=prompt.shape[0],
     ),

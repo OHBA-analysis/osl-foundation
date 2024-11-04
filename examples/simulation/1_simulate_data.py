@@ -13,18 +13,18 @@ os.makedirs(plot_dir, exist_ok=True)
 simulation_config = {
     "n_groups": 1,
     "n_subjects_per_group": 20,
-    "true_freqs": np.array([6.0, 10.0, 20.0]),
+    "true_freqs": np.array([10.0, 20.0]),
     "sampling_frequency": 100,
     "snr": 4.0,
     "data_dir": data_dir,
 }
 n_modes = simulation_config["true_freqs"].shape[0]
-n_channels = 10
+n_channels = 4
 
 channel_activity = np.zeros((n_modes, n_channels))
-channel_activity[0, :] = 1
-channel_activity[1, : n_channels // 2] = 1
-channel_activity[2, n_channels // 2 :] = 1
+# channel_activity[0, :] = 1
+channel_activity[0, : n_channels // 2] = 1
+channel_activity[1, n_channels // 2 :] = 1
 simulation_config["channel_activity"] = channel_activity
 
 # 5 minutes of data

@@ -35,8 +35,8 @@ config = f"""
         batch_size: 32
         n_epochs: 40
         temperature_annealing:
-            n_stages: 15
-            n_annealing_epochs: 30
+            n_stages: 40
+            n_annealing_epochs: 40
 """
 
 # Build model

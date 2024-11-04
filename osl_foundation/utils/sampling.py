@@ -121,16 +121,13 @@ def top_p_sampling(logits: tf.Tensor, p: float) -> tf.Tensor:
     cum_probs = tf.cumsum(tf.nn.softmax(sorted_logits, axis=-1), axis=-1)
 
     # Find the index where cumulative probability exceeds p
-    cutoff_indices = tf.reduce_sum(tf.cast(cum_probs <= p, tf.int32), axis=-1)
-
-    # if cutoff index is less than 1, set it to 1
-    cutoff_indices = tf.maximum(cutoff_indices, 1)
+    cutoff_indices = tf.reduce_sum(tf.cast(cum_probs < p, tf.int32), axis=-1) + 1
 
     # Mask logits beyond the cutoff index
     mask = tf.logical_not(
         tf.sequence_mask(cutoff_indices, maxlen=tf.shape(logits)[-1], dtype=tf.bool)
     )
-    masked_logits = tf.where(mask, float("-inf"), logits)
+    masked_logits = tf.where(mask, float("-inf"), sorted_logits)
 
     # Sample from the masked logits
     cat = tfp.distributions.Categorical(logits=masked_logits)
