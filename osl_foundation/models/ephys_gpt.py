@@ -521,7 +521,7 @@ class EphysGPT(BaseModel):
 
         # Build Data object
         data = Data(
-            random_tokens, store_dir="tmp/random_tokens", use_tfrecord=use_tfrecord
+            random_tokens, store_dir="tmp_random_tokens", use_tfrecord=use_tfrecord
         )
         dataset = self.make_dataset(
             data,
