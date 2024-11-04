@@ -5,6 +5,38 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 
 
+def rnn_layer(
+    rnn_type: str, rnn_n_units: int, return_sequences: bool = True
+) -> tf.keras.layers.Layer:
+    """
+    Create an RNN layer.
+
+    Parameters
+    ----------
+    rnn_type : str
+        Type of RNN layer. Options are 'gru', 'lstm'.
+    rnn_n_units : int
+        Number of units in the RNN layer.
+    return_sequences : bool, optional
+        Whether to return sequences.
+
+    Returns
+    -------
+    rnn_layer : tf.keras.layers.Layer
+        RNN layer.
+    """
+    if rnn_type == "gru":
+        return tf.keras.layers.GRU(
+            rnn_n_units, return_sequences=return_sequences, stateful=False
+        )
+    elif rnn_type == "lstm":
+        return tf.keras.layers.LSTM(
+            rnn_n_units, return_sequences=return_sequences, stateful=False
+        )
+    else:
+        raise ValueError(f"Unknown RNN type: {rnn_type}")
+
+
 class IdentityLayer(tf.keras.layers.Layer):
     """
     Identity layer.

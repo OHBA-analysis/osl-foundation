@@ -11,27 +11,23 @@ class OSLTokenizerModelConfig(BaseModelConfig):
     n_tokens: int = None
     token_dim: int = None
     rnn_n_units: int = None
+    rnn_type: str = None
+    rnn_n_layers: int = None
 
     def validate(self) -> None:
         super().validate()
         assert self.n_tokens is not None, "n_tokens must be set"
         assert self.token_dim is not None, "token_dim must be set"
         assert self.rnn_n_units is not None, "rnn_n_units must be set"
+        assert self.rnn_type is not None, "rnn_type must be set"
+        assert self.rnn_n_layers is not None, "rnn_n_layers must be set"
+
+        assert self.rnn_type in ["gru", "lstm"], "rnn_type must be 'gru' or 'lstm'"
+        assert self.rnn_n_layers > 0, "rnn_n_layers must be greater than 0"
 
     def set_config(self, config: dict) -> None:
         self.n_tokens = config.get("n_tokens", 16)
         self.token_dim = config.get("token_dim", 32)
         self.rnn_n_units = config.get("rnn_n_units", 64)
-
-    def get_config(self) -> dict:
-        return (
-            super()
-            .get_config()
-            .update(
-                {
-                    "n_tokens": self.n_tokens,
-                    "token_dim": self.token_dim,
-                    "rnn_n_units": self.rnn_n_units,
-                }
-            )
-        )
+        self.rnn_type = config.get("rnn_type", "gru")
+        self.rnn_n_layers = config.get("rnn_n_layers", 1)
