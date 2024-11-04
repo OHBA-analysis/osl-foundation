@@ -14,7 +14,7 @@ from osl_dynamics.utils.plotting import rough_square_axes
 
 from osl_foundation.models.base import BaseModel
 from osl_foundation.config import Config, get_config
-from osl_foundation.inference.layers import TokenWeightsLayer, MSELossLayer
+from osl_foundation.inference.layers import rnn_layer, TokenWeightsLayer, MSELossLayer
 
 _logger = logging.getLogger("osl-foundation")
 
@@ -27,16 +27,18 @@ class EncoderLayer(tf.keras.layers.Layer):
 
     Parameters
     ----------
+    rnn_type : str
+        Type of the RNN layer. Either 'gru' or 'lstm'.
+    rnn_n_layers : int
+        Number of layers in the RNN.
     rnn_n_units : int
         Number of units in the RNN.
     """
 
-    def __init__(self, rnn_n_units: int, **kwargs):
+    def __init__(self, rnn_type: str, rnn_n_layers: int, rnn_n_units: int, **kwargs):
         super().__init__(**kwargs)
-        self.rnn = tf.keras.layers.GRU(
-            rnn_n_units,
-            return_sequences=True,
-            stateful=False,
+        self.rnn = tf.keras.Sequential(
+            [rnn_layer(rnn_type, rnn_n_units) for _ in range(rnn_n_layers)]
         )
 
     def call(self, inputs, **kwargs):
@@ -140,6 +142,8 @@ class OSLTokenizer(BaseModel):
 
         # ---------- Layers ---------- #
         encoder_layer = EncoderLayer(
+            config.rnn_type,
+            config.rnn_n_layers,
             config.rnn_n_units,
             name="encoder",
         )
