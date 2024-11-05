@@ -42,8 +42,6 @@ generator_config = f"""
             within_channel_attention_dropout: 0.0
             feed_forward_dim: 100
             dropout: 0.2
-            # norm_type: group
-            # n_groups: 8
         loss_parameters:
             loss_sequence_length: 8
     training_config:

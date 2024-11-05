@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Union, List
+from typing import Union, List, Tuple
 import logging
 
 import pickle
@@ -237,13 +237,22 @@ class BaseModel:
         with open(f"{dirname}/history.pkl", "wb") as f:
             pickle.dump(self.history, f)
 
-    def plot_history(self, plot_dir: str = None, keyword: str = None) -> None:
+    def plot_history(
+        self, plot_dir: str = None, keyword: str = None
+    ) -> Union[None, Tuple[plt.Figure, plt.Axes]]:
         """Plot the training history.
 
         Parameters
         ----------
         plot_dir : str, optional
             Directory to save the plot.
+
+        Returns
+        -------
+        fig : plt.Figure
+            Figure object.
+        ax : plt.Axes
+            Axes object.
         """
         fig, ax = plt.subplots(figsize=(12, 6))
         for key in self.history.keys():
@@ -257,6 +266,8 @@ class BaseModel:
         if plot_dir is not None:
             fig.savefig(f"{plot_dir}/history_{keyword}.png")
             plt.close(fig)
+        else:
+            return fig, ax
 
     def summary(self, **kwargs) -> None:
         """Print a summary of the model."""

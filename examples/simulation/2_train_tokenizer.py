@@ -31,12 +31,13 @@ config = f"""
         rnn_n_units: 128
     training_config:
         optimizer:
-            learning_rate: 0.001
-        batch_size: 32
+            learning_rate: 0.01
+        batch_size: 16
         n_epochs: 40
         temperature_annealing:
             n_stages: 40
             n_annealing_epochs: 40
+        lr_decay: 0.1
 """
 
 # Build model

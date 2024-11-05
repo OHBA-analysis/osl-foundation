@@ -22,7 +22,6 @@ n_modes = simulation_config["true_freqs"].shape[0]
 n_channels = 4
 
 channel_activity = np.zeros((n_modes, n_channels))
-# channel_activity[0, :] = 1
 channel_activity[0, : n_channels // 2] = 1
 channel_activity[1, n_channels // 2 :] = 1
 simulation_config["channel_activity"] = channel_activity

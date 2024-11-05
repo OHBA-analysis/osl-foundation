@@ -39,6 +39,8 @@ class Bursts:
         Sampling frequency in Hz. Default: 100.
     snr : float, optional
         Signal-to-noise ratio. Default: 4.
+    stay_prob : float, optional
+        Probability of staying in the same state in the HMM. Default: 0.98.
     data_dir : str, optional
         Directory to save simulated data. Default: "sim_data".
     """
@@ -55,6 +57,7 @@ class Bursts:
         channel_activity: np.ndarray = None,
         sampling_frequency: int = 100,
         snr: float = 4,
+        stay_prob: float = 0.98,
         data_dir: str = None,
     ):
         self.n_groups = n_groups
@@ -68,6 +71,7 @@ class Bursts:
         self.n_channels = self.channel_activity.shape[1]
         self.sampling_frequency = sampling_frequency
         self.snr = snr
+        self.stay_prob = stay_prob
         self.data_dir = data_dir or "sim_data"
 
     def _get_true_freqs(self, true_freqs, group_freq_shift):
@@ -132,7 +136,7 @@ class Bursts:
         timestamps = np.arange(self.n_samples) / self.sampling_frequency
         hmm = HMM(
             trans_prob="uniform",
-            stay_prob=0.98,
+            stay_prob=self.stay_prob,
             n_states=self.n_modes + 1,
         )
 
