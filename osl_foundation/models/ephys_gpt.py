@@ -1,4 +1,5 @@
 from typing import List
+import logging
 
 import tensorflow as tf
 import numpy as np
@@ -17,6 +18,8 @@ from osl_foundation.inference.layers import (
 )
 from osl_foundation.utils.sampling import sample_from_logits
 from osl_foundation.utils.testing import create_random_tokens
+
+_logger = logging.getLogger("osl-foundation")
 
 
 class ShiftTokenLayer(tf.keras.layers.Layer):
@@ -61,18 +64,17 @@ class CrossEntropyLossLayer(tf.keras.layers.Layer):
         self.loss_sequence_length = loss_sequence_length
         self.accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name="accuracy")
 
-    def call(self, y_true, y_pred, **kwargs):
+    def call(self, inputs, **kwargs):
+        y_pred, y_true = inputs
         # y_true.shape = (batch_size, sequence_length, n_channels)
         # y_pred.shape = (batch_size, latent_sequence_length, n_channels, n_tokens)
 
         # Only calculate loss for the last loss_sequence_length tokens
-        y_true = y_true[:, -self.loss_sequence_length :]
         y_pred = y_pred[:, -self.loss_sequence_length :]
+        y_true = y_true[:, -self.loss_sequence_length :]
 
-        loss = tf.reduce_mean(
-            tf.keras.losses.sparse_categorical_crossentropy(
-                y_true, y_pred, from_logits=True
-            )
+        loss = tf.keras.losses.sparse_categorical_crossentropy(
+            y_true, y_pred, from_logits=True
         )
         accuracy = self.accuracy(y_true, y_pred)
         self.add_loss(loss)
@@ -204,7 +206,7 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
 
         embeddings += self.position_embedding_output_layer(
             self.position_embedding_layer(positions)
-        )
+        )[:, : tf.shape(x)[1], :]
         # embeddings.shape = (batch_size, sequence_length, n_channels, embedding_dim)
 
         # ---------- Channel embeddings ---------- #
@@ -302,38 +304,31 @@ class DecoderLayer(tf.keras.layers.Layer):
 
         # ---------- Initialize layers ----------
 
+        # Input dropout layer
+        self.input_dropout_layers = [
+            tf.keras.layers.Dropout(dropout) for _ in range(n_layers)
+        ]
+
         # Multi-head attention layers (Special first layer)
         self.attention_layers = [
             MultiHeadPASSTALayer(
                 n_heads,
                 model_dim,
-                embedding_dim,
+                embedding_dim if i == 0 else model_dim,
                 n_channels,
-                sequence_length,
+                sequence_length if i == 0 else latent_sequence_length,
                 latent_sequence_length,
-                n_patches,
+                n_patches if i == 0 else latent_sequence_length // patch_length,
                 patch_length,
                 unpatched_length,
                 channel_attention_dropout,
                 within_channel_attention_dropout,
             )
+            for i in range(n_layers)
         ]
-        for _ in range(n_layers - 1):
-            self.attention_layers.append(
-                MultiHeadPASSTALayer(
-                    n_heads,
-                    model_dim,
-                    model_dim,
-                    n_channels,
-                    latent_sequence_length,
-                    latent_sequence_length,
-                    latent_sequence_length // patch_length,
-                    patch_length,
-                    unpatched_length,
-                    channel_attention_dropout,
-                    within_channel_attention_dropout,
-                )
-            )
+        self.attention_dropout_layers = [
+            tf.keras.layers.Dropout(dropout) for _ in range(n_layers)
+        ]
 
         # Normalization layers
 
@@ -366,32 +361,37 @@ class DecoderLayer(tf.keras.layers.Layer):
         # inputs.shape = (batch_size, sequence_length, n_channels, embedding_dim)
         x = inputs
         for i in range(self.n_layers):
+            # Input dropout
+            x = self.input_dropout_layers[i](x, training=training, **kwargs)
 
             # Residual connection
             x_residual = x
 
             # Attention layer
-            x = self.attention_layers[i](x, training=training)
+            x = self.attention_layers[i](x, training=training, **kwargs)
+            x = self.attention_dropout_layers[i](x, training=training, **kwargs)
 
             # Add to residual
             if i == 0:
-                x_residual = self.first_residual_layer(x_residual)
+                x_residual = self.first_residual_layer(
+                    x_residual, training=training, **kwargs
+                )
             x = x + x_residual[:, -tf.shape(x)[1] :]
 
             # Normalization 1
-            x = self.normalization_layers_1[i](x, training=training)
+            x = self.normalization_layers_1[i](x, training=training, **kwargs)
 
             # Residual connection
             x_residual = x
 
             # Feed-forward layer
-            x = self.feed_forward_layers[i](x, training=training)
+            x = self.feed_forward_layers[i](x, training=training, **kwargs)
 
             # Add to residual
             x = x + x_residual
 
             # Normalization 2
-            x = self.normalization_layers_2[i](x, training=training)
+            x = self.normalization_layers_2[i](x, training=training, **kwargs)
 
         # x.shape = (batch_size, latent_sequence_length, n_channels, model_dim)
 
@@ -439,7 +439,7 @@ class EphysGPT(BaseModel):
         x = get_argument(self.model.fit, "x", args, kwargs)
 
         # Tokenise the data and build Data object
-        tokenized_x = self.tokenizer.tokenize_data(x)[0]
+        tokenized_x = self.tokenizer.tokenize_data(x)
         tokenized_x = Data(
             tokenized_x,
             store_dir=f"{getattr(x, 'store_dir', 'tmp')}/tokenized",
@@ -538,7 +538,14 @@ class EphysGPT(BaseModel):
         tokenizer_path = self.config.model_config.tokenizer_path
         if tokenizer_path is None:
             return None
-        return load_tokenizer(tokenizer_path)
+
+        _logger.info(f"Loaded tokenizer from {tokenizer_path}")
+        tokenizer = load_tokenizer(tokenizer_path)
+        n_tokens = len(tokenizer.vocab["token_order"]) + 1
+        _logger.info(f"Setting n_tokens to {n_tokens}")
+        self.config.model_config.n_tokens = n_tokens
+
+        return tokenizer
 
     def _build_model(self) -> tf.keras.Model:
         config = self.config.model_config
@@ -620,7 +627,7 @@ class EphysGPT(BaseModel):
         # x.shape = (batch_size, latent_sequence_length, n_channels, n_tokens)
 
         # Calculate the loss
-        loss, x_pred = loss_layer(true_token, x)
+        loss, x_pred = loss_layer([x, true_token])
 
         # ---------- Model ---------- #
         return tf.keras.Model(
