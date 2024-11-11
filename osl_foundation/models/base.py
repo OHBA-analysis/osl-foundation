@@ -102,11 +102,15 @@ class BaseModel:
                     + "Consider using a TFRecord dataset with Data(..., use_tfrecord=True)."
                 )
 
+            sequence_length = self.config.model_config.sequence_length
+            if self.config.model_config.name == "ephys_gpt":
+                sequence_length += 1
+
             # Data object -> list of Dataset if concatenate=False
             # or Data object -> Dataset if concatenate=True
             if inputs.use_tfrecord:
                 outputs = inputs.tfrecord_dataset(
-                    self.config.model_config.sequence_length,
+                    sequence_length,
                     self.config.training_config.batch_size,
                     shuffle=shuffle,
                     concatenate=concatenate,
@@ -117,7 +121,7 @@ class BaseModel:
                 )
             else:
                 outputs = inputs.dataset(
-                    self.config.model_config.sequence_length,
+                    sequence_length,
                     self.config.training_config.batch_size,
                     shuffle=shuffle,
                     concatenate=concatenate,

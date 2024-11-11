@@ -108,6 +108,58 @@ class TokenWeightsLayer(tf.keras.layers.Layer):
         return token_weight
 
 
+class PositionEmbedding(tf.keras.layers.Layer):
+
+    def __init__(
+        self,
+        sequence_length,
+        initializer="glorot_uniform",
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        if sequence_length is None:
+            raise ValueError("`sequence_length` must be an Integer, received `None`.")
+        self.sequence_length = int(sequence_length)
+        self.initializer = tf.keras.initializers.get(initializer)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "sequence_length": self.sequence_length,
+                "initializer": tf.keras.initializers.serialize(self.initializer),
+            }
+        )
+        return config
+
+    def build(self, inputs_shape):
+        feature_size = inputs_shape[-1]
+        self.position_embeddings = self.add_weight(
+            name="embeddings",
+            shape=[self.sequence_length, feature_size],
+            initializer=self.initializer,
+            trainable=True,
+        )
+        self.built = True
+
+    def call(self, inputs, start_index=0):
+        inputs_shape = tf.shape(inputs)
+        feature_length = inputs_shape[-1]
+        sequence_length = inputs_shape[-2]
+        # trim to match the length of the input sequence, which might be less
+        # than the sequence_length of the layer.
+        position_embeddings = tf.convert_to_tensor(self.position_embeddings)
+        position_embeddings = tf.slice(
+            position_embeddings,
+            (start_index, 0),
+            (sequence_length, feature_length),
+        )
+        return tf.broadcast_to(position_embeddings, inputs_shape)
+
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
+
 class NormalizationLayer(tf.keras.layers.Layer):
     """
     Layer for performing normalization.
@@ -474,7 +526,7 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         self.within_channel_attention_dropout = within_channel_attention_dropout
 
         # Patch projection
-        self.patch_projection = tf.keras.layers.Dense(1)
+        self.patch_projection = tf.keras.layers.Dense(n_heads)
 
         # Input projections
         self.time_patched_projection = tf.keras.layers.Dense(2 * self.model_dim)
@@ -599,8 +651,42 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         patched_x = self._patch_x(x)
         # patched_x.shape: (batch_size, n_patches, n_channels, embedding_dim, patch_length)
 
-        # Apply patch projection
-        patched_x = tf.squeeze(self.patch_projection(patched_x), axis=-1)
+        patched_x = tf.reshape(
+            patched_x,
+            (
+                tf.shape(patched_x)[0],
+                self.n_patches,
+                self.n_channels,
+                self.key_dim,
+                self.n_heads,
+                self.patch_length,
+            ),
+        )
+        # patched_x.shape: (batch_size, n_patches, n_channels, key_dim, n_heads, patch_length)
+        patched_x = tf.reshape(
+            patched_x,
+            (
+                tf.shape(patched_x)[0],
+                self.n_patches,
+                self.n_channels,
+                self.key_dim,
+                self.n_heads * self.patch_length,
+            ),
+        )
+        # patched_x.shape: (batch_size, n_patches, n_channels, key_dim, n_heads * patch_length)
+
+        patched_x = self.patch_projection(patched_x)
+        # patched_x.shape: (batch_size, n_patches, n_channels, key_dim, n_heads)
+
+        patched_x = tf.reshape(
+            patched_x,
+            (
+                tf.shape(patched_x)[0],
+                self.n_patches,
+                self.n_channels,
+                self.embedding_dim,
+            ),
+        )
         # patched_x.shape: (batch_size, n_patches, n_channels, embedding_dim)
 
         perceiver_x = self._perceiver_x(x)
