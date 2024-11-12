@@ -16,6 +16,7 @@ from osl_foundation.inference.layers import (
     MultiHeadPASSTALayer,
     NormalizationLayer,
     PositionEmbedding,
+    MultiHeadSelfAttention,
 )
 from osl_foundation.utils.sampling import sample_from_logits
 from osl_foundation.utils.testing import create_random_tokens
@@ -321,16 +322,27 @@ class DecoderLayer(tf.keras.layers.Layer):
 
         # Multi-head attention layers (Special first layer)
         self.attention_layers = [
-            MultiHeadPASSTALayer(
+            # MultiHeadPASSTALayer(
+            #     n_heads,
+            #     model_dim,
+            #     embedding_dim if i == 0 else model_dim,
+            #     n_channels,
+            #     sequence_length if i == 0 else latent_sequence_length,
+            #     latent_sequence_length,
+            #     n_patches if i == 0 else latent_sequence_length // patch_length,
+            #     patch_length,
+            #     unpatched_length,
+            #     channel_attention_dropout,
+            #     within_channel_attention_dropout,
+            # )
+            MultiHeadSelfAttention(
                 n_heads,
                 model_dim,
-                embedding_dim if i == 0 else model_dim,
-                n_channels,
-                sequence_length if i == 0 else latent_sequence_length,
-                latent_sequence_length,
                 n_patches if i == 0 else latent_sequence_length // patch_length,
+                latent_sequence_length,
                 patch_length,
                 unpatched_length,
+                True,
                 channel_attention_dropout,
                 within_channel_attention_dropout,
             )
@@ -365,9 +377,6 @@ class DecoderLayer(tf.keras.layers.Layer):
             )
             for _ in range(n_layers)
         ]
-        self.feed_forward_dropout_layers = [
-            tf.keras.layers.Dropout(dropout) for _ in range(n_layers)
-        ]
 
     def call(self, inputs, training=None, **kwargs):
         # inputs.shape = (batch_size, sequence_length, n_channels, embedding_dim)
@@ -395,9 +404,6 @@ class DecoderLayer(tf.keras.layers.Layer):
 
             # Feed-forward layer
             x = self.feed_forward_layers[i](x, training=training, **kwargs)
-
-            # Feed-forward dropout
-            x = self.feed_forward_dropout_layers[i](x, training=training, **kwargs)
 
             # Add to residual
             x = x + x_residual
@@ -698,7 +704,7 @@ class EphysGPT(BaseModel):
         # ---------- Helper functions ---------- #
         def _random_tokens() -> np.ndarray:
             tokens = np.random.randint(
-                n_tokens, size=(batch_size, sequence_length + 1, n_channels)
+                n_tokens, size=(batch_size, sequence_length, n_channels)
             )
             return tokens
 
@@ -731,23 +737,37 @@ class EphysGPT(BaseModel):
             )
 
         # ---------- Generate tokens ---------- #
-        prompt = tf.constant(prompt, dtype=tf.int32)
-        for _ in trange(n_samples, desc="Generating tokens"):
-            place_holder = prompt[:, -sequence_length - 1 :]
+        generated_tokens = np.zeros(
+            (batch_size, sequence_length + n_samples, n_channels), dtype=np.int32
+        )
+        generated_tokens[:, :sequence_length] = prompt
+        for i in trange(
+            sequence_length, sequence_length + n_samples, desc="Generating tokens"
+        ):
+            place_holder = generated_tokens[:, i - sequence_length : i + 1]
             # place_holder.shape = (batch_size, sequence_length + 1, n_channels)
 
             # Prediction logits for the next token
-            logits = self.model([place_holder] + extra_labels)[1][:, -1] / temperature
+            logits = (
+                (
+                    self.model([place_holder] + extra_labels, training=False)[1][:, -1]
+                    / temperature
+                )
+                .numpy()
+                .astype(np.float32)
+            )
             # logits.shape = (batch_size, n_channels, n_tokens)
 
             # Sample the next token
-            next_token = sample_from_logits(logits=logits, method=method, p=p, k=k)
+            next_token = sample_from_logits(
+                logits=logits, method=method, p=p, k=k
+            ).numpy()
             # next_token.shape = (batch_size, n_channels)
 
             # Add the next token to the prompt
-            prompt = tf.concat([prompt, tf.expand_dims(next_token, 1)], axis=1)
+            generated_tokens[:, i] = next_token.astype(np.int32)
 
-        return prompt.numpy()[:, sequence_length:]
+        return generated_tokens[:, sequence_length:]
 
     def generate_data(self, **kwargs):
         """
