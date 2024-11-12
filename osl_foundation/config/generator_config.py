@@ -80,12 +80,6 @@ class EphysGPTModelConfig(BaseModelConfig):
             ), "n_tokens must be set if tokenizer_path is not set"
         else:
             assert self.n_tokens > 0, "n_tokens must be greater than 0"
-
-        assert self.token_embedding_dim is not None, "token_embedding_dim must be set"
-        assert self.pos_embedding_dim is not None, "pos_embedding_dim must be set"
-        assert (
-            self.channel_embedding_dim is not None
-        ), "channel_embedding_dim must be set"
         assert self.n_channels is not None, "n_channels must be set"
         self.extra_labels = self.extra_labels or []
 

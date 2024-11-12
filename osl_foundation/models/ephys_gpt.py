@@ -16,7 +16,6 @@ from osl_foundation.inference.layers import (
     MultiHeadPASSTALayer,
     NormalizationLayer,
     PositionEmbedding,
-    MultiHeadSelfAttention,
 )
 from osl_foundation.utils.sampling import sample_from_logits
 from osl_foundation.utils.testing import create_random_tokens
@@ -27,17 +26,7 @@ _logger = logging.getLogger("osl-foundation")
 class ShiftTokenLayer(tf.keras.layers.Layer):
     """
     This layer added a start of sequence token and removes the end of sequence token.
-
-    Parameters
-    ----------
-    n_tokens : int
-        Number of tokens in the vocabulary.
     """
-
-    def __init__(self, n_tokens: int, **kwargs):
-        super().__init__(**kwargs)
-        self.n_tokens = n_tokens
-        self.concatenate_layer = tf.keras.layers.Concatenate(axis=1)
 
     def call(self, x):
         x_input = x[:, :-1]
@@ -322,27 +311,16 @@ class DecoderLayer(tf.keras.layers.Layer):
 
         # Multi-head attention layers (Special first layer)
         self.attention_layers = [
-            # MultiHeadPASSTALayer(
-            #     n_heads,
-            #     model_dim,
-            #     embedding_dim if i == 0 else model_dim,
-            #     n_channels,
-            #     sequence_length if i == 0 else latent_sequence_length,
-            #     latent_sequence_length,
-            #     n_patches if i == 0 else latent_sequence_length // patch_length,
-            #     patch_length,
-            #     unpatched_length,
-            #     channel_attention_dropout,
-            #     within_channel_attention_dropout,
-            # )
-            MultiHeadSelfAttention(
+            MultiHeadPASSTALayer(
                 n_heads,
                 model_dim,
-                n_patches if i == 0 else latent_sequence_length // patch_length,
+                embedding_dim if i == 0 else model_dim,
+                n_channels,
+                sequence_length if i == 0 else latent_sequence_length,
                 latent_sequence_length,
+                n_patches if i == 0 else latent_sequence_length // patch_length,
                 patch_length,
                 unpatched_length,
-                True,
                 channel_attention_dropout,
                 within_channel_attention_dropout,
             )
@@ -586,7 +564,7 @@ class EphysGPT(BaseModel):
             )
 
         # ---------- Initialize layers ---------- #
-        shift_token_layer = ShiftTokenLayer(config.n_tokens, name="shift_token")
+        shift_token_layer = ShiftTokenLayer(name="shift_token")
         input_embedding_layer = InputEmbeddingLayer(
             config.embedding_dim,
             config.n_tokens,
@@ -693,7 +671,7 @@ class EphysGPT(BaseModel):
 
         Returns
         -------
-        prompt : np.ndarray
+        generated_tokens : np.ndarray
             Generated tokens. Shape is (batch_size, n_samples, n_channels).
         """
         batch_size = batch_size or self.config.training_config.batch_size
@@ -780,7 +758,7 @@ class EphysGPT(BaseModel):
 
         Returns
         -------
-        prompt : np.ndarray
+        generated_data : np.ndarray
             Generated data. Shape is (batch_size, n_samples, n_channels).
         """
         tokens = self.generate_tokens(**kwargs)

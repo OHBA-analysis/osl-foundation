@@ -109,28 +109,26 @@ class TokenWeightsLayer(tf.keras.layers.Layer):
 
 
 class PositionEmbedding(tf.keras.layers.Layer):
+    """
+    Layer for learning position embeddings.
+
+    Parameters
+    ----------
+    sequence_length : int
+        Sequence length.
+    initializer : str, optional
+        Initializer for the position embeddings.
+    """
 
     def __init__(
         self,
-        sequence_length,
-        initializer="glorot_uniform",
+        sequence_length: int,
+        initializer: str = "glorot_uniform",
         **kwargs,
     ):
         super().__init__(**kwargs)
-        if sequence_length is None:
-            raise ValueError("`sequence_length` must be an Integer, received `None`.")
-        self.sequence_length = int(sequence_length)
+        self.sequence_length = sequence_length
         self.initializer = tf.keras.initializers.get(initializer)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update(
-            {
-                "sequence_length": self.sequence_length,
-                "initializer": tf.keras.initializers.serialize(self.initializer),
-            }
-        )
-        return config
 
     def build(self, inputs_shape):
         feature_size = inputs_shape[-1]
@@ -155,9 +153,6 @@ class PositionEmbedding(tf.keras.layers.Layer):
             (sequence_length, feature_length),
         )
         return tf.broadcast_to(position_embeddings, inputs_shape)
-
-    def compute_output_shape(self, input_shape):
-        return input_shape
 
 
 class NormalizationLayer(tf.keras.layers.Layer):
@@ -462,169 +457,6 @@ class PASSTALayer(tf.keras.layers.Layer):
         return output
 
 
-class DotProductAttention(tf.keras.layers.Layer):
-    def __init__(
-        self,
-        SEQ_LEN_LATENT,
-        NUM_PATCHES,
-        PATCH_LEN,
-        SEQ_LEN_UNPATCHED,
-        chan_att,
-        chanatt_dropout_rate,
-        within_chanatt_dropout_rate,
-        **kwargs,
-    ):
-        super(DotProductAttention, self).__init__(**kwargs)
-
-        self.chan_att = chan_att
-
-        # (1-chanatt_dropout_rate) is proportion of times that chan att is used when training
-        # (1-within_chanatt_dropout_rate)*(1-chanatt_dropout_rate) is proportion of times that within chan att is used when training
-        self.chanatt_dropout_rate = chanatt_dropout_rate
-        self.within_chanatt_dropout_rate = within_chanatt_dropout_rate
-
-        self.apply_chan_att = tf.Variable(True, trainable=False)
-        self.apply_within_chan_att = tf.Variable(True, trainable=False)
-
-        time_attention_mask = np.zeros(
-            (SEQ_LEN_LATENT, NUM_PATCHES + SEQ_LEN_UNPATCHED)
-        )  # output x input
-
-        # patch masking
-        for i in range(NUM_PATCHES):  # i is indexing the input
-            mm = (1 - NUM_PATCHES + i) * PATCH_LEN + SEQ_LEN_LATENT - 1
-            mm = max(0, mm)
-            time_attention_mask[0:mm, i] = 1
-
-        # unpatched (tpts) masking
-        for i in range(
-            NUM_PATCHES, NUM_PATCHES + SEQ_LEN_UNPATCHED
-        ):  # i is indexing the input
-            time_attention_mask[
-                0 : SEQ_LEN_LATENT - (NUM_PATCHES + SEQ_LEN_UNPATCHED) + i, i
-            ] = 1
-
-        self.time_attention_mask = tf.constant(time_attention_mask, dtype=tf.float32)
-
-    def call(
-        self,
-        inputs,
-        training,
-    ):
-        queries, chan_queries, keys_for_timeatt, keys_for_chanatt, values = inputs
-        # queries are expected to be (B, H, L_Q, C, K)
-        # keys_for_timeatt are expected to be (B, H, P+L_u, C, K)
-        # keys_for_chanatt are expected to be (B, H, L_Q, C, K)
-        # values are expected to be (B, H, P+L_u, C, K)
-
-        ### Prepare time attention
-
-        # reshape queries to (B, H, C, L_Q, K) so that we can compute time_attention_scores
-        queries_trans = tf.transpose(queries, perm=(0, 1, 3, 2, 4))
-        # reshape  keys to (B, H, C, P+L_u, K) so that we can compute time_attention_scores
-        keys_trans = tf.transpose(keys_for_timeatt, perm=(0, 1, 3, 2, 4))
-
-        key_dims = tf.shape(keys_for_timeatt)[-1]
-        time_attention_scores = tf.matmul(
-            queries_trans, keys_trans, transpose_b=True
-        ) / tf.math.sqrt(
-            tf.cast(key_dims, tf.float32)
-        )  # [B, H, C, L_Q, P+L_u]
-
-        # Apply mask by setting masked values to be -1e9
-        # so that they are masked out when applying softmax
-
-        time_attention_scores += -1e9 * self.time_attention_mask
-        time_attention_scores = tf.math.softmax(
-            time_attention_scores
-        )  # [B, H, C, L_Q, P+L_u] # softmax will be done on the last dimension
-        time_attention_scores = time_attention_scores * (1 - self.time_attention_mask)
-
-        ### Prepare channel attention
-
-        # dropout for chan attention
-        if self.chan_att:
-            if not training:
-                self.apply_chan_att.assign(True)
-                self.apply_within_chan_att.assign(True)
-            else:
-                # each batch has a probability of applying channel attention
-                # channel attention is (or is not) then applied to the entire batch (over all sequences)
-                self.apply_chan_att.assign(
-                    tf.random.uniform([1], 0, 1)[0] > self.chanatt_dropout_rate
-                )
-
-                if self.apply_chan_att:
-                    # within chan att can only be turned off if chan att is on
-                    self.apply_within_chan_att.assign(
-                        tf.random.uniform([1], 0, 1)[0]
-                        > self.within_chanatt_dropout_rate
-                    )
-                else:
-                    self.apply_within_chan_att.assign(True)
-        else:
-            self.apply_chan_att.assign(False)
-            self.apply_within_chan_att.assign(True)
-
-        if self.apply_chan_att:
-
-            # do channel attention
-            key_dims = tf.shape(keys_for_chanatt)[-1]
-
-            chan_attention_scores = tf.matmul(
-                chan_queries, keys_for_chanatt, transpose_b=True
-            ) / tf.math.sqrt(
-                tf.cast(key_dims, tf.float32)
-            )  # [B, H, L_Q, C, C]
-
-            if self.apply_within_chan_att:
-                # within channel attention
-                chan_attention_scores = chan_attention_scores * (
-                    1 - tf.eye(tf.shape(chan_attention_scores)[3])
-                )
-
-                # Values in mask are set to one to mask that channel out
-                # Mask out any within channel attention
-
-                chan_attention_mask = tf.eye(tf.shape(chan_attention_scores)[3])
-
-                # Apply mask by setting masked values to be -1e9
-                # so that they are masked out when applying softmax
-                chan_attention_scores += -1e9 * chan_attention_mask
-                chan_attention_scores = tf.math.softmax(chan_attention_scores)
-                chan_attention_scores = chan_attention_scores * (
-                    1 - chan_attention_mask
-                )
-            else:
-                # across channel attention
-                chan_attention_scores = tf.math.softmax(chan_attention_scores)
-
-        else:
-            NUM_CHANS = tf.shape(queries)[3]
-            chan_attention_scores = tf.eye(NUM_CHANS)  # [C, C]
-            chan_attention_scores = tf.expand_dims(
-                tf.expand_dims(tf.expand_dims(chan_attention_scores, axis=0), axis=0),
-                axis=0,
-            )  # [1, 1, C, C]
-
-        ### Apply the attention scores to the values to get the output
-
-        # Computing the output of the scaled dot product attention,
-
-        reshape_values = tf.transpose(
-            values, perm=(0, 1, 3, 2, 4)
-        )  # (B, H, C, P+L_u, K)
-        reshape_output = tf.matmul(
-            time_attention_scores, reshape_values
-        )  # (B, H, C, L_Q, K)
-        reshape_output2 = tf.transpose(
-            reshape_output, perm=(0, 1, 3, 2, 4)
-        )  # (B, H, L_Q, C, K)
-        output = tf.matmul(chan_attention_scores, reshape_output2)  # (B, H, L_Q, C, K)
-
-        return output
-
-
 class MultiHeadPASSTALayer(tf.keras.layers.Layer):
     """
     The Multi-head PASSTA layer.
@@ -698,12 +530,13 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         self.channel_projection = tf.keras.layers.Dense(2 * self.model_dim)
 
         # PASSTA layer for time and channel attention
-        self.attention_layer = DotProductAttention(
+        self.passta_layer = PASSTALayer(
+            n_channels,
             latent_sequence_length,
             n_patches,
             patch_length,
             unpatched_length,
-            True,
+            self.key_dim,
             channel_attention_dropout,
             within_channel_attention_dropout,
         )
@@ -901,7 +734,7 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         # (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
 
         # ---------- PASSTA Layer ---------- #
-        output = self.attention_layer([q, c_q, k, c_k, v], training=training, **kwargs)
+        output = self.passta_layer([q, k, v, c_q, c_k], training=training, **kwargs)
         # output.shape: (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
 
         # ---------- Combine heads ---------- #
@@ -913,219 +746,3 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         # output.shape: (batch_size, latent_sequence_length, n_channels, model_dim)
 
         return output
-
-
-class MultiHeadSelfAttention(tf.keras.layers.Layer):
-    def __init__(
-        self,
-        NUM_HEADS,
-        EMBED_DIM,
-        NUM_PATCHES,
-        SEQ_LEN_LATENT,  # L_Q
-        PATCH_LEN,
-        SEQ_LEN_UNPATCHED,
-        chan_att,
-        chanatt_dropout_rate,
-        within_chanatt_dropout_rate,
-        **kwargs,
-    ):
-        super(MultiHeadSelfAttention, self).__init__(**kwargs)
-
-        self.attention = DotProductAttention(
-            SEQ_LEN_LATENT,
-            NUM_PATCHES,
-            PATCH_LEN,
-            SEQ_LEN_UNPATCHED,
-            chan_att,
-            chanatt_dropout_rate,
-            within_chanatt_dropout_rate,
-        )  # Scaled dot product attention
-        self.NUM_HEADS = NUM_HEADS  # Number of attention heads to use
-        self.EMBED_DIM = (
-            EMBED_DIM  # Dimensionality of the linearly projected queries and keys
-        )
-        self.NUM_PATCHES = NUM_PATCHES
-        self.PATCH_LEN = PATCH_LEN
-        self.SEQ_LEN_UNPATCHED = SEQ_LEN_UNPATCHED
-        self.SEQ_LEN_LATENT = SEQ_LEN_LATENT
-
-        self.W_q = tf.keras.layers.Dense(
-            EMBED_DIM
-        )  # Learned projection matrix for the queries
-        self.W_chan_q = tf.keras.layers.Dense(
-            EMBED_DIM
-        )  # Learned projection matrix for the queries
-        self.W_o = tf.keras.layers.Dense(
-            EMBED_DIM
-        )  # Learned projection matrix for the multi-head output
-        self.W_k_p = tf.keras.layers.Dense(
-            EMBED_DIM
-        )  # Learned projection matrix for the patched keys
-        self.W_v_p = tf.keras.layers.Dense(
-            EMBED_DIM
-        )  # Learned projection matrix for the patched values
-        self.W_k_u = tf.keras.layers.Dense(
-            EMBED_DIM
-        )  # Learned projection matrix for the unpatched keys
-        self.W_chan_k_u = tf.keras.layers.Dense(
-            EMBED_DIM
-        )  # Learned projection matrix for the unpatched keys for channel attention
-        self.W_v_u = tf.keras.layers.Dense(
-            EMBED_DIM
-        )  # Learned projection matrix for the unpatched values
-
-        self.W_patches = tf.keras.layers.Dense(
-            NUM_HEADS
-        )  # Learned projection matrix for the unpatched values to get the patch values
-
-    def reshape_tensor(self, x, heads, flag):
-        if flag:
-            # x is expected to be (B, L, C, E)
-            # Tensor shape after reshaping and transposing: (B, H, L or P, C, K)
-            x2 = tf.reshape(
-                x, shape=(tf.shape(x)[0], tf.shape(x)[1], tf.shape(x)[2], heads, -1)
-            )  # (B, L or P, C, H, K)
-            x3 = tf.transpose(x2, perm=(0, 3, 1, 2, 4))  # (B, H, L or P, C, K)
-        else:
-            # Reverting the reshaping and transposing operations: (B, L or P, C, E)
-            x2 = tf.transpose(x, perm=(0, 2, 3, 1, 4))
-            x3 = tf.reshape(
-                x2,
-                shape=(
-                    tf.shape(x2)[0],
-                    tf.shape(x2)[1],
-                    tf.shape(x2)[2],
-                    self.EMBED_DIM,
-                ),
-            )
-        return x3
-
-    def call(self, inputs, training):
-
-        # Inputs are expected to be (B, L, C, E)
-        # Note that L will vary depending on the layer, due to perceiver AR
-
-        # For perceiver AR
-        lq_inputs = tf.slice(
-            inputs,
-            [0, tf.shape(inputs)[1] - self.SEQ_LEN_LATENT, 0, 0],
-            [-1, -1, -1, -1],
-        )  # (B, L_Q, C, E)
-
-        # inputs are expected to be (B, L, C, E)
-        # Do patching
-        patched_inputs = tf.reshape(
-            inputs,
-            shape=(
-                tf.shape(inputs)[0],
-                self.NUM_PATCHES,
-                self.PATCH_LEN,
-                tf.shape(inputs)[2],
-                self.EMBED_DIM,
-            ),
-        )  # (B, P, L_P, C, E)
-        patched_tmp = tf.transpose(
-            patched_inputs, perm=(0, 1, 3, 4, 2)
-        )  # (B, P, C, E, L_P)
-
-        # Ultimately we want to map from (B, P, C, E, L_P) to (B, P, C, E):
-        # Option 1: (B, P, C, E, L_P) -> (B, P, C, E*L_P) -[Dense(E)]-> (B, P, C, E)   High numparams, low RAM
-        # Option 2: (B, P, C, E, L_P) -[Dense(1)]-> (B, P, C, E, 1) -> (B, P, C, E)    Low numparams, high RAM
-        # Option 3: (B, P, C, E, L_P) -> (B, P, C, EonK, K, L_P) -> (B, P, C, EonK, K*L_P) -[Dense(K)]-> (B, P, C, EonK, K) -> (B, P, C, E)    Med numparams, Med RAM
-        #
-        # Option 3 is used here, as a tradeoff between numparams and RAM, with K=H
-
-        EonK = self.EMBED_DIM // self.NUM_HEADS
-        patched_tmp = tf.reshape(
-            patched_tmp,
-            (
-                tf.shape(patched_tmp)[0],
-                tf.shape(patched_tmp)[1],
-                tf.shape(patched_tmp)[2],
-                EonK,
-                self.NUM_HEADS,
-                self.PATCH_LEN,
-            ),
-        )  # (B, P, C, EonK, K, Lp)
-        patched_tmp = tf.reshape(
-            patched_tmp,
-            (
-                tf.shape(patched_tmp)[0],
-                tf.shape(patched_tmp)[1],
-                tf.shape(patched_tmp)[2],
-                EonK,
-                self.NUM_HEADS * self.PATCH_LEN,
-            ),
-        )  # (B, P, C, EonK, K*Lp)
-        patched_dat = self.W_patches(patched_tmp)  # (B, P, C, EonK, K)
-        patched_dat = tf.reshape(
-            patched_dat,
-            (
-                tf.shape(patched_dat)[0],
-                tf.shape(patched_dat)[1],
-                tf.shape(patched_dat)[2],
-                self.EMBED_DIM,
-            ),
-        )  # (B, P, C, E)
-
-        q_reshaped = self.reshape_tensor(
-            self.W_q(lq_inputs), self.NUM_HEADS, True
-        )  # (B, H, L_Q, C, K)
-        chan_q_reshaped = self.reshape_tensor(
-            self.W_chan_q(lq_inputs), self.NUM_HEADS, True
-        )  # (B, H, L_Q, C, K)
-
-        # time keys
-        k_lq = self.W_k_u(lq_inputs)  # (B, L_Q, C, E)
-
-        # chan keys
-        chan_k_lq = self.W_chan_k_u(lq_inputs)  # (B, L_Q, C, E)
-
-        # keys for time attention
-        k_unpatched = tf.slice(
-            k_lq,
-            [0, tf.shape(k_lq)[1] - self.SEQ_LEN_UNPATCHED, 0, 0],
-            [-1, -1, -1, -1],
-        )  # (B, L_u, C, E)
-        k_patched = self.W_k_p(patched_dat)  # (B, P, C, E)
-        k_full = tf.concat([k_patched, k_unpatched], axis=1)  # (B, P+L_u, C, E)
-        k_reshaped_for_timeatt = self.reshape_tensor(k_full, self.NUM_HEADS, True)
-        # Resulting tensor shape: (B, H, P+L_u, C, K)
-        # Note E = HK
-
-        # keys for chan attention
-        chan_k_reshaped = self.reshape_tensor(chan_k_lq, self.NUM_HEADS, True)
-        # Resulting tensor shape: (B, H, L_Q, C, K)
-
-        # values (for time attention)
-        v_patched = self.W_v_p(patched_dat)  # (B, P, C, E)
-        patched_dat = tf.slice(
-            inputs,
-            [0, tf.shape(inputs)[1] - self.SEQ_LEN_UNPATCHED, 0, 0],
-            [-1, -1, -1, -1],
-        )  # (B, L_u, C, E)
-        v_unpatched = self.W_v_u(patched_dat)  # (B, L_u, C, E)
-        v_full = tf.concat([v_patched, v_unpatched], axis=1)  # (B, P+L_u, C, E)
-        v_reshaped = self.reshape_tensor(v_full, self.NUM_HEADS, True)
-        # Resulting tensor shape: (B, H, P+L_u, C, K)
-
-        # Compute the multi-head attention output using the reshaped queries, keys and values
-        o_reshaped = self.attention(
-            [
-                q_reshaped,
-                chan_q_reshaped,
-                k_reshaped_for_timeatt,
-                chan_k_reshaped,
-                v_reshaped,
-            ],
-            training,
-        )
-        # Resulting tensor shape: (B, H, L_Q, C, K)
-
-        # Rearrange back the output into concatenated form
-        output = self.reshape_tensor(o_reshaped, self.NUM_HEADS, False)
-        # Resulting tensor shape: (B, L_Q, C, E)
-
-        # Apply one final linear projection to the output to generate the multi-head attention
-        # Resulting tensor shape: (B, L_Q, C, E)
-        return self.W_o(output)
