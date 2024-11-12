@@ -10,6 +10,7 @@ from tqdm.auto import tqdm
 
 from osl_dynamics.data import Data
 from osl_dynamics.array_ops import get_one_hot
+from osl_dynamics.utils.misc import get_argument
 from osl_dynamics.utils.plotting import rough_square_axes
 
 from osl_foundation.models.base import BaseModel
@@ -90,7 +91,7 @@ class Decoder(tf.keras.layers.Layer):
         self.sequence_length = sequence_length
         self.n_tokens = n_tokens
         self.token_basis_layer = tf.keras.layers.Conv1D(
-            filters=1,
+            filters=n_tokens,
             kernel_size=token_dim,
             padding="same",
         )
@@ -99,7 +100,7 @@ class Decoder(tf.keras.layers.Layer):
         x = inputs
         # x.shape = (batch_size * n_channels, sequence_length, n_tokens)
 
-        x = self.token_basis_layer(x)
+        x = tf.reduce_sum(self.token_basis_layer(x), axis=-1, keepdims=True)
         # x.shape = (batch_size * n_channels, sequence_length, 1)
 
         x = tf.reshape(x, (-1, self.n_channels, self.sequence_length))
@@ -135,6 +136,17 @@ class OSLTokenizer(BaseModel):
 
     def build_model(self) -> None:
         self.model = self._build_model()
+
+    def fit(self, *args, **kwargs) -> None:
+        super().fit(*args, **kwargs)
+        x = get_argument(self.model.fit, "x", args, kwargs)
+        # Refactor vocabularies
+        self.refactor_vocab(x)
+
+    def save(self, dirname: str) -> None:
+        super().save(dirname)
+        with open(f"{dirname}/vocab.pkl", "wb") as f:
+            pickle.dump(self.vocab, f)
 
     def _build_model(self) -> tf.keras.Model:
         """Model definition."""
@@ -187,7 +199,7 @@ class OSLTokenizer(BaseModel):
             name=config.name,
         )
 
-    def tokenize_data(
+    def _tokenize_data(
         self,
         data: Data,
         concatenate: bool = False,
@@ -208,18 +220,18 @@ class OSLTokenizer(BaseModel):
         Returns
         -------
         tokens : Union[np.ndarray, List[np.ndarray]]
-            The tokens for each session.
+            The tokens for each session. Shape is (n_samples, n_channels).
         token_weights : Union[np.ndarray, List[np.ndarray]]
             The token weights for each token in each session.
+            Shape is (n_samples, n_channels, n_tokens).
         """
 
         dataset = self.make_dataset(data, shuffle=False, concatenate=False)
 
-        def _tokenize_data(d):
+        def _tokenize_data_per_session(d):
             # Tokenize for a single session
-            tw = []
-            for x in d:
-                tw.append(self.model(x)[2])
+            tw = [self.model(x)[2] for x in d]
+
             # Concatenate over batches and sequences
             tw = np.concatenate(np.concatenate(tw))
             # tw.shape = (n_samples, n_channels, n_tokens)
@@ -228,7 +240,7 @@ class OSLTokenizer(BaseModel):
         _logger.info("Tokenizing data...")
         token_weights = []
         for d in tqdm(dataset, desc="Tokenizing data", total=len(dataset)):
-            token_weights.append(_tokenize_data(d))
+            token_weights.append(_tokenize_data_per_session(d))
 
         tokens = [np.argmax(tw, axis=-1) for tw in token_weights]
 
@@ -260,7 +272,7 @@ class OSLTokenizer(BaseModel):
         config = self.config.model_config
 
         _logger.info("Refactoring vocabulary...")
-        tokens = self.tokenize_data(data)[0]
+        tokens = self._tokenize_data(data)[0]
 
         # Count the tokens across samples and channels for each session
         token_counts = np.array(
@@ -292,6 +304,36 @@ class OSLTokenizer(BaseModel):
             "total_token_counts": np.sum(token_counts, axis=0),
             "label_map": label_map,
         }
+
+    def tokenize_data(
+        self, data: Data, concatenate: bool = False
+    ) -> Union[np.ndarray, List[np.ndarray]]:
+        """
+        Tokenize data using the model and the refactored vocabularies.
+
+        Parameters
+        ----------
+        data : osl_dynamics.data.Data
+            The data to tokenize.
+        concatenate : bool, optional
+            Whether to concatenate the tokens over all sessions, by default False.
+
+        Returns
+        -------
+        tokens : Union[np.ndarray, List[np.ndarray]]
+            The tokens for each session. Shape is (n_samples, n_channels).
+        """
+        if not self.vocab:
+            raise ValueError("Vocabularies are not refactored.")
+        tokens, _ = self._tokenize_data(data, concatenate=False)
+
+        # Remap tokens to refactored tokens
+        tokens = [self.vocab["label_map"][t] for t in tokens]
+
+        if concatenate:
+            tokens = np.concatenate(tokens)
+
+        return tokens
 
     def get_pve(self, data: Data) -> np.ndarray:
         """
@@ -336,7 +378,7 @@ class OSLTokenizer(BaseModel):
 
         return np.array(pve)
 
-    def reconstruct_data(
+    def _reconstruct_data(
         self,
         tokens: Union[np.ndarray, List[np.ndarray]],
         concatenate: bool = False,
@@ -364,7 +406,7 @@ class OSLTokenizer(BaseModel):
 
         token_basis_layer = self.model.get_layer("decoder").token_basis_layer
 
-        def _reconstruct_data(t):
+        def _reconstruct_data_per_session(t):
             n_tokens = self.config.model_config.n_tokens
 
             # Reconstruct for a single array of tokens
@@ -385,7 +427,7 @@ class OSLTokenizer(BaseModel):
             t_one_hot = np.array(t_one_hot)  # having channel in batch dimension
             # Shape: (n_channels, n_samples, n_tokens)
 
-            reconstructed_data = np.squeeze(token_basis_layer(t_one_hot))
+            reconstructed_data = np.sum(token_basis_layer(t_one_hot), axis=-1)
             # x.shape = (n_channels, n_samples)
 
             # Reorder dimensions for consistency
@@ -395,12 +437,50 @@ class OSLTokenizer(BaseModel):
 
         reconstructed_data = []
         for t in tqdm(tokens, desc="Reconstructing data", total=len(tokens)):
-            reconstructed_data.append(_reconstruct_data(t))
+            reconstructed_data.append(_reconstruct_data_per_session(t))
 
         if concatenate or len(reconstructed_data) == 1:
             reconstructed_data = np.concatenate(reconstructed_data)
 
         return reconstructed_data
+
+    def reconstruct_data(
+        self,
+        tokens: Union[np.ndarray, List[np.ndarray]],
+        concatenate: bool = False,
+    ) -> Union[np.ndarray, List[np.ndarray]]:
+        """
+        Reconstruct data from tokens using the refactored vocabularies.
+
+        Parameters
+        ----------
+        tokens : Union[np.ndarray, List[np.ndarray]]
+            The tokens to reconstruct.
+            Shape of tokens of each session: (n_samples, n_channels).
+        concatenate : bool, optional
+            Whether to concatenate the reconstructed data over all sessions, by default False.
+
+        Returns
+        -------
+        reconstructed_data : Union[np.ndarray, List[np.ndarray]]
+            The reconstructed data.
+            Shape of reconstructed data of each session: (n_samples, n_channels).
+        """
+        if not self.vocab:
+            raise ValueError("Vocabularies are not refactored.")
+
+        # Remap refactored tokens to original tokens
+        remapped_tokens = []
+        for t in tokens:
+            remapped_t = (
+                np.ones(t.shape, dtype=np.int32)
+                * np.where(self.vocab["label_map"] == 0)[0][0]
+            )
+            t -= 1
+            remapped_t[t >= 0] = self.vocab["token_order"][t[t >= 0]]
+            remapped_tokens.append(remapped_t)
+
+        return self._reconstruct_data(remapped_tokens, concatenate)
 
     def get_token_kernel_response(
         self, data: Data = None, input: Union[str, np.ndarray] = None
@@ -455,7 +535,7 @@ class OSLTokenizer(BaseModel):
             token_weights = np.zeros((1, n_samples, n_tokens))
             token_weights[0, :, n] = input
             response = np.squeeze(
-                token_basis_layer(token_weights).numpy()
+                np.sum(token_basis_layer(token_weights).numpy(), axis=-1)
             )  # resposne.shape = (n_samples)
             kernel_response.append(response)
 
@@ -607,8 +687,8 @@ class OSLTokenizer(BaseModel):
 
         # Get data reconstructed from tokens
         data = Data(data_path)
-        tokenized_data, token_weights = self.tokenize_data(data)
-        fitted_data = self.reconstruct_data(tokenized_data)
+        tokenized_data, token_weights = self._tokenize_data(data)
+        fitted_data = self._reconstruct_data(tokenized_data)
 
         # Plot data signals and token weights
         n_channels = min(original_data.shape[1], 3)  # number of channels to plot
@@ -652,4 +732,6 @@ def load_tokenizer(model_dir: str) -> OSLTokenizer:
     tokenizer.load_weights(f"{model_dir}/weights").expect_partial()
     with open(f"{model_dir}/history.pkl", "rb") as f:
         tokenizer.history = pickle.load(f)
+    with open(f"{model_dir}/vocab.pkl", "rb") as f:
+        tokenizer.vocab = pickle.load(f)
     return tokenizer

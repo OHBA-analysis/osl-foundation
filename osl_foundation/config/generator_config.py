@@ -74,7 +74,12 @@ class EphysGPTModelConfig(BaseModelConfig):
 
     def _validate_input_parameters(self) -> None:
         assert self.embedding_dim is not None, "embedding_dim must be set"
-        assert self.n_tokens is not None, "n_tokens must be set"
+        if self.n_tokens is None:
+            assert (
+                self.tokenizer_path is not None
+            ), "n_tokens must be set if tokenizer_path is not set"
+        else:
+            assert self.n_tokens > 0, "n_tokens must be greater than 0"
         assert self.n_channels is not None, "n_channels must be set"
         self.extra_labels = self.extra_labels or []
 
@@ -95,7 +100,7 @@ class EphysGPTModelConfig(BaseModelConfig):
         ), "latent_sequence_length must be greater than 0"
         assert self.n_patches > 0, "n_patches must be greater than 0"
         assert self.patch_length > 0, "patch_length must be greater than 0"
-        assert self.unpatched_length > 0, "unpatched_length must be greater than 0"
+        assert self.unpatched_length >= 0, "unpatched_length must be non-negative"
         assert self.feed_forward_dim > 0, "feed_forward_dim must be greater than 0"
         assert self.n_groups is None or self.n_groups > 0
 

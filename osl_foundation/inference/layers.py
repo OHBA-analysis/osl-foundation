@@ -86,7 +86,7 @@ class TokenWeightsLayer(tf.keras.layers.Layer):
 
     def call(self, inputs, training=None, **kwargs):
         ell = self.activation_layer(self.dense_layer(inputs))
-        ell = self.norm_layer(ell)
+        ell = self.norm_layer(ell) / 0.1
         # Shape: (batch_size * n_channels, sequence_length, n_tokens)
 
         if training:
@@ -106,6 +106,53 @@ class TokenWeightsLayer(tf.keras.layers.Layer):
         else:
             token_weight = tf.one_hot(tf.argmax(ell, axis=2), self.output_dim)
         return token_weight
+
+
+class PositionEmbedding(tf.keras.layers.Layer):
+    """
+    Layer for learning position embeddings.
+
+    Parameters
+    ----------
+    sequence_length : int
+        Sequence length.
+    initializer : str, optional
+        Initializer for the position embeddings.
+    """
+
+    def __init__(
+        self,
+        sequence_length: int,
+        initializer: str = "glorot_uniform",
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.sequence_length = sequence_length
+        self.initializer = tf.keras.initializers.get(initializer)
+
+    def build(self, inputs_shape):
+        feature_size = inputs_shape[-1]
+        self.position_embeddings = self.add_weight(
+            name="embeddings",
+            shape=[self.sequence_length, feature_size],
+            initializer=self.initializer,
+            trainable=True,
+        )
+        self.built = True
+
+    def call(self, inputs, start_index=0):
+        inputs_shape = tf.shape(inputs)
+        feature_length = inputs_shape[-1]
+        sequence_length = inputs_shape[-2]
+        # trim to match the length of the input sequence, which might be less
+        # than the sequence_length of the layer.
+        position_embeddings = tf.convert_to_tensor(self.position_embeddings)
+        position_embeddings = tf.slice(
+            position_embeddings,
+            (start_index, 0),
+            (sequence_length, feature_length),
+        )
+        return tf.broadcast_to(position_embeddings, inputs_shape)
 
 
 class NormalizationLayer(tf.keras.layers.Layer):
@@ -183,6 +230,9 @@ class TimeAttentionLayer(tf.keras.layers.Layer):
         # Normalise attention with softmax
         attention = tf.nn.softmax(attention, axis=-1)
 
+        if mask is not None:
+            attention = attention * (1 - mask)
+
         # Apply attention to value
         output = tf.matmul(attention, v)
         # output: (batch_size, n_heads, n_channels, out_sequence_length, key_dim)
@@ -227,6 +277,9 @@ class ChannelAttention(tf.keras.layers.Layer):
         # Normalise attention with softmax
         attention = tf.nn.softmax(attention, axis=-1)
 
+        if mask is not None:
+            attention = attention * (1 - mask)
+
         # Apply attention to value
         output = tf.matmul(attention, v)
         # output: (batch_size, n_heads, sequence_length, n_channels, key_dim)
@@ -234,306 +287,7 @@ class ChannelAttention(tf.keras.layers.Layer):
         return output
 
 
-class DummyChannelAttentionLayer(tf.keras.layers.Layer):
-    """
-    Dummy layer for channel attention.
-    This layer directly returns the value tensor.
-    """
-
-    def call(self, inputs, mask=None, **kwargs):
-        q, k, v = inputs
-        return v
-
-
-class SSTALayer(tf.keras.layers.Layer):
-    """
-    The Separable Space-Time self-Attention (SSTA) layer.
-    This layer performs space-time attention on the input tensor.
-
-    Parameters
-    ----------
-    n_channels : int
-        Number of channels.
-    latent_sequence_length : int
-        Latent sequence length.
-    key_dim : int
-        Key dimension.
-    channel_attention_dropout : float
-        Dropout rate for channel attention.
-        Values greater than 1.0 means no channel attention.
-        Values less than 0.0 means no dropout.
-    within_channel_attention_dropout : float
-        Dropout rate for within-channel attention.
-        Values greater than 1.0 means no within-channel attention.
-        Values less than 0.0 means no dropout
-    """
-
-    def __init__(
-        self,
-        n_channels: int,
-        latent_sequence_length: int,
-        key_dim: int,
-        channel_attention_dropout: float,
-        within_channel_attention_dropout: float,
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self.n_channels = n_channels
-        self.latent_sequence_length = latent_sequence_length
-        self.key_dim = key_dim
-
-        self.channel_attention_dropout = channel_attention_dropout
-        self.within_channel_attention_dropout = within_channel_attention_dropout
-
-        # Time attention layer
-        self.time_attention_layer = TimeAttentionLayer(key_dim)
-        # Mask for time attention (This is fixed).
-        self.time_attention_mask = self._compute_time_attention_mask()
-
-        # Channel attention layer
-        if self.channel_attention_dropout < 1.0:
-            self.channel_attention_layer = ChannelAttention(key_dim)
-        else:
-            self.channel_attention_layer = DummyChannelAttentionLayer()
-
-    def _compute_time_attention_mask(self) -> tf.Tensor:
-        """
-        Compute the causal mask for time attention.
-
-        Returns
-        -------
-        mask : tf.Tensor
-            Mask for time attention.
-            Shape: (latent_sequence_length, latent_sequence_length).
-        """
-        mask = np.triu(
-            np.ones((self.latent_sequence_length, self.latent_sequence_length)), k=1
-        )
-        mask = tf.constant(mask, dtype=tf.float32)
-
-        return mask
-
-    def _compute_channel_attention_mask(
-        self, training: bool = False
-    ) -> Union[tf.Tensor, None]:
-        """
-        Compute the mask for channel attention.
-
-        Parameters
-        ----------
-        training : bool
-            Whether the model is training.
-            If False, no dropout is applied.
-
-        Returns
-        -------
-        mask : tf.Tensor or None
-            Mask for channel attention.
-            Shape: (n_channels, n_channels).
-            If None, full attention is applied.
-        """
-        if training:
-            uniform_sampler = tfp.distributions.Uniform()
-
-            # Sample whether to apply channel attention
-            if uniform_sampler.sample() < self.channel_attention_dropout:
-                # Does not apply channel attention and mask all off-diagonal elements
-                mask = 1 - np.eye(self.n_channels)
-                return tf.constant(mask, dtype=tf.float32)
-
-            # Sample whether to apply within-channel attention
-            elif uniform_sampler.sample() < self.within_channel_attention_dropout:
-                # Does not apply within-channel attention and mask all diagonal elements
-                mask = np.eye(self.n_channels)
-                return tf.constant(mask, dtype=tf.float32)
-
-            # Apply channel attention and does not mask any elements, return None
-            else:
-                mask = np.zeros((self.n_channels, self.n_channels))
-                return tf.constant(mask, dtype=tf.float32)
-
-        # If not training, return None
-        # else:
-        #     return None
-
-    def call(self, inputs, training=None, **kwargs):
-        # ---------- Unpack Inputs ---------- #
-
-        # q (Query): (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
-        # k (Key): (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
-        # v (Value): (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
-        # c_q (Channel Query): (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
-        # c_k (Channel Key): (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
-        q, k, v, c_q, c_k = inputs
-
-        # ---------- Time Attention ---------- #
-        output = self.time_attention_layer(
-            [q, k, v], mask=self.time_attention_mask, training=training, **kwargs
-        )
-
-        # ---------- Channel Attention ---------- #
-
-        # First sample channel attention mask
-        if self.channel_attention_dropout < 1.0:
-            channel_attention_mask = self._compute_channel_attention_mask(
-                training=training
-            )
-        else:
-            channel_attention_mask = None
-
-        # Apply channel attention
-        output = self.channel_attention_layer(
-            [c_q, c_k, output], mask=channel_attention_mask, training=training, **kwargs
-        )
-
-        return output
-
-
-class MultiHeadSSTALayer(tf.keras.layers.Layer):
-    """
-    The Multi-head SSTA layer.
-
-    Parameters
-    ----------
-    n_heads : int
-        Number of heads.
-    model_dim : int
-        Model dimension.
-    embedding_dim : int
-        Token dimension.
-    n_channels : int
-        Number of channels.
-    latent_sequence_length : int
-        Latent sequence length.
-    channel_attention_dropout : float
-        Dropout rate for channel attention.
-        Values greater than 1.0 means no channel attention.
-        Values less than 0.0 means no dropout.
-    within_channel_attention_dropout : float
-        Dropout rate for within-channel attention.
-        Values greater than 1.0 means no within-channel attention.
-        Values less than 0.0 means no dropout
-    """
-
-    def __init__(
-        self,
-        n_heads: int,
-        model_dim: int,
-        embedding_dim: int,
-        n_channels: int,
-        latent_sequence_length: int,
-        channel_attention_dropout: float,
-        within_channel_attention_dropout: float,
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self.n_heads = n_heads
-        self.model_dim = model_dim
-        self.embedding_dim = embedding_dim
-        self.key_dim = model_dim // n_heads
-        self.n_channels = n_channels
-        self.latent_sequence_length = latent_sequence_length
-        self.channel_attention_dropout = channel_attention_dropout
-        self.within_channel_attention_dropout = within_channel_attention_dropout
-
-        # Input projections
-        self.projection = tf.keras.layers.Dense(5 * self.model_dim)
-
-        # SSTALayer for time and channel attention
-        self.ssta_layer = SSTALayer(
-            n_channels,
-            latent_sequence_length,
-            self.key_dim,
-            channel_attention_dropout,
-            within_channel_attention_dropout,
-        )
-
-        # Output projection
-        self.output_projection = tf.keras.layers.Dense(self.model_dim)
-
-    def _split_heads(self, x: tf.Tensor) -> tf.Tensor:
-        # x.shape: (batch_size, latent_sequence_length, n_channels, model_dim)
-
-        x = tf.reshape(
-            x,
-            (
-                tf.shape(x)[0],
-                tf.shape(x)[1],
-                self.n_channels,
-                self.n_heads,
-                self.key_dim,
-            ),
-        )
-        # x.shape: (batch_size, latent_sequence_length, n_channels, n_heads, key_dim)
-
-        x = tf.transpose(x, perm=(0, 3, 1, 2, 4))
-        # x.shape: (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
-
-        return x
-
-    def _combine_heads(self, x: tf.Tensor) -> tf.Tensor:
-        # x.shape: (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
-
-        x = tf.transpose(x, perm=(0, 2, 3, 1, 4))
-        # x.shape: (batch_size, latent_sequence_length, n_channels, n_heads, key_dim)
-
-        x = tf.reshape(
-            x,
-            (
-                tf.shape(x)[0],
-                self.latent_sequence_length,
-                self.n_channels,
-                self.model_dim,
-            ),
-        )
-        # x.shape: (batch_size, latent_sequence_length, n_channels, model_dim)
-
-        return x
-
-    def call(self, inputs, training=None, **kwargs):
-        x = inputs
-        # x.shape: (batch_size, latent_sequence_length, n_channels, embedding_dim)
-
-        # ---------- Project inputs to Q, K, V ---------- #
-        q, k, v, c_q, c_k = tf.split(self.projection(x), 5, axis=-1)
-        # q.shape: (batch_size, latent_sequence_length, n_channels, model_dim)
-        # k.shape: (batch_size, latent_sequence_length, n_channels, model_dim)
-        # v.shape: (batch_size, latent_sequence_length, n_channels, model_dim)
-        # c_q.shape: (batch_size, latent_sequence_length, n_channels, model_dim)
-        # c_k.shape: (batch_size, latent_sequence_length, n_channels, model_dim)
-
-        # ---------- Split heads ---------- #
-
-        q = self._split_heads(q)
-        # (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
-
-        k = self._split_heads(k)
-        # (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
-
-        v = self._split_heads(v)
-        # (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
-
-        c_q = self._split_heads(c_q)
-        # (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
-
-        c_k = self._split_heads(c_k)
-        # (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
-
-        # ---------- SSTALayer ---------- #
-        output = self.ssta_layer([q, k, v, c_q, c_k], training=training, **kwargs)
-
-        # ---------- Combine heads ---------- #
-        output = self._combine_heads(output)
-        # output.shape: (batch_size, latent_sequence_length, n_channels, model_dim)
-
-        # ---------- Output projection ---------- #
-        output = self.output_projection(output)
-        # output.shape: (batch_size, latent_sequence_length, n_channels, model_dim)
-
-        return output
-
-
-class PASSTALayer(SSTALayer):
+class PASSTALayer(tf.keras.layers.Layer):
     """
     The Perceiver AR Separable Space-Time self-Attention (PASSTA) layer.
     This layer performs space-time attention on the input tensor.
@@ -574,18 +328,23 @@ class PASSTALayer(SSTALayer):
         within_channel_attention_dropout: float,
         **kwargs,
     ):
-        # TODO: Option to leave out unpatched_length
+        super().__init__(**kwargs)
+        self.n_channels = n_channels
+        self.latent_sequence_length = latent_sequence_length
+        self.key_dim = key_dim
+        self.channel_attention_dropout = channel_attention_dropout
+        self.within_channel_attention_dropout = within_channel_attention_dropout
         self.n_patches = n_patches
         self.patch_length = patch_length
         self.unpatched_length = unpatched_length
-        super().__init__(
-            n_channels,
-            latent_sequence_length,
-            key_dim,
-            channel_attention_dropout,
-            within_channel_attention_dropout,
-            **kwargs,
-        )
+
+        # Time attention layer
+        self.time_attention_layer = TimeAttentionLayer(key_dim)
+        # Mask for time attention (This is fixed).
+        self.time_attention_mask = self._compute_time_attention_mask()
+
+        # Channel attention layer
+        self.channel_attention_layer = ChannelAttention(key_dim)
 
     def _compute_time_attention_mask(self) -> tf.Tensor:
         """
@@ -597,8 +356,11 @@ class PASSTALayer(SSTALayer):
             Mask for time attention.
             Shape: (latent_sequence_length, n_patches + unpatched_length).
         """
+        mask = np.zeros(
+            (self.latent_sequence_length, self.n_patches + self.unpatched_length)
+        )
 
-        patch_mask = np.zeros((self.latent_sequence_length, self.n_patches))
+        # Patch masking
         for i in range(self.n_patches):
             m_indx = max(
                 0,
@@ -606,17 +368,66 @@ class PASSTALayer(SSTALayer):
                 + self.latent_sequence_length
                 - 1,
             )
-            patch_mask[:m_indx, i] = 1
+            mask[:m_indx, i] = 1
 
-        unpatched_mask = np.zeros((self.latent_sequence_length, self.unpatched_length))
-        for i in range(self.unpatched_length):
-            m_indx = self.latent_sequence_length - self.unpatched_length + i
-            unpatched_mask[:m_indx, i] = 1
-
-        mask = np.concatenate([patch_mask, unpatched_mask], axis=1)
+        # Unpatched masking
+        for i in range(self.n_patches, self.n_patches + self.unpatched_length):
+            mask[
+                : self.latent_sequence_length
+                - (self.n_patches + self.unpatched_length)
+                + i,
+                i,
+            ] = 1
         mask = tf.constant(mask, dtype=tf.float32)
 
         return mask
+
+    def _compute_channel_attention_mask(self, training: bool) -> Union[tf.Tensor, None]:
+        """
+        Compute the mask for channel attention.
+
+        Parameters
+        ----------
+        training : bool
+            Whether the model is training.
+            If False, no dropout is applied.
+
+        Returns
+        -------
+        mask : tf.Tensor or None
+            Mask for channel attention.
+            Shape: (n_channels, n_channels).
+            If None, full attention is applied.
+        """
+        if self.channel_attention_dropout < 1.0:
+            # We apply channel attention dropout only during training
+            if not training:
+                return tf.zeros((self.n_channels, self.n_channels), dtype=tf.float32)
+            else:
+                uniform_sampler = tfp.distributions.Uniform()
+
+                # Sample whether to apply channel attention
+                if uniform_sampler.sample() < self.channel_attention_dropout:
+                    # Does not apply channel attention and mask all off-diagonal elements
+                    mask = 1 - np.eye(self.n_channels)
+                    return tf.constant(mask, dtype=tf.float32)
+
+                # Sample whether to apply within-channel attention
+                elif uniform_sampler.sample() < self.within_channel_attention_dropout:
+                    # Does not apply within-channel attention and mask all diagonal elements
+                    mask = np.eye(self.n_channels)
+                    return tf.constant(mask, dtype=tf.float32)
+
+                # Apply channel attention and does not mask any elements, return None
+                else:
+                    return tf.zeros(
+                        (self.n_channels, self.n_channels), dtype=tf.float32
+                    )
+        else:
+            # If channel_attention_dropout >= 1.0, no channel attention is applied
+            # Mask all off-diagonal elements
+            mask = 1 - np.eye(self.n_channels)
+            return tf.constant(mask, dtype=tf.float32)
 
     def call(self, inputs, training=None, **kwargs):
         # ---------- Unpack Inputs ---------- #
@@ -636,12 +447,7 @@ class PASSTALayer(SSTALayer):
         # ---------- Channel Attention ---------- #
 
         # First sample channel attention mask
-        if self.channel_attention_dropout < 1.0:
-            channel_attention_mask = self._compute_channel_attention_mask(
-                training=training
-            )
-        else:
-            channel_attention_mask = None
+        channel_attention_mask = self._compute_channel_attention_mask(training=training)
 
         # Apply channel attention
         output = self.channel_attention_layer(
@@ -715,7 +521,7 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         self.within_channel_attention_dropout = within_channel_attention_dropout
 
         # Patch projection
-        self.patch_projection = tf.keras.layers.Dense(1)
+        self.patch_projection = tf.keras.layers.Dense(n_heads)
 
         # Input projections
         self.time_patched_projection = tf.keras.layers.Dense(2 * self.model_dim)
@@ -840,8 +646,42 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         patched_x = self._patch_x(x)
         # patched_x.shape: (batch_size, n_patches, n_channels, embedding_dim, patch_length)
 
-        # Apply patch projection
-        patched_x = tf.squeeze(self.patch_projection(patched_x), axis=-1)
+        patched_x = tf.reshape(
+            patched_x,
+            (
+                tf.shape(patched_x)[0],
+                self.n_patches,
+                self.n_channels,
+                self.key_dim,
+                self.n_heads,
+                self.patch_length,
+            ),
+        )
+        # patched_x.shape: (batch_size, n_patches, n_channels, key_dim, n_heads, patch_length)
+        patched_x = tf.reshape(
+            patched_x,
+            (
+                tf.shape(patched_x)[0],
+                self.n_patches,
+                self.n_channels,
+                self.key_dim,
+                self.n_heads * self.patch_length,
+            ),
+        )
+        # patched_x.shape: (batch_size, n_patches, n_channels, key_dim, n_heads * patch_length)
+
+        patched_x = self.patch_projection(patched_x)
+        # patched_x.shape: (batch_size, n_patches, n_channels, key_dim, n_heads)
+
+        patched_x = tf.reshape(
+            patched_x,
+            (
+                tf.shape(patched_x)[0],
+                self.n_patches,
+                self.n_channels,
+                self.embedding_dim,
+            ),
+        )
         # patched_x.shape: (batch_size, n_patches, n_channels, embedding_dim)
 
         perceiver_x = self._perceiver_x(x)

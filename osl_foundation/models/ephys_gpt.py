@@ -1,4 +1,5 @@
 from typing import List
+import logging
 
 import tensorflow as tf
 import numpy as np
@@ -14,32 +15,27 @@ from osl_foundation.inference.layers import (
     IdentityLayer,
     MultiHeadPASSTALayer,
     NormalizationLayer,
+    PositionEmbedding,
 )
 from osl_foundation.utils.sampling import sample_from_logits
 from osl_foundation.utils.testing import create_random_tokens
+
+_logger = logging.getLogger("osl-foundation")
 
 
 class ShiftTokenLayer(tf.keras.layers.Layer):
     """
     This layer added a start of sequence token and removes the end of sequence token.
-
-    Parameters
-    ----------
-    n_tokens : int
-        Number of tokens in the vocabulary.
     """
 
-    def __init__(self, n_tokens: int, **kwargs):
-        super().__init__(**kwargs)
-        self.n_tokens = n_tokens
-        self.concatenate_layer = tf.keras.layers.Concatenate(axis=1)
-
     def call(self, x):
-        # Add start of sequence token
-        x = self.concatenate_layer([tf.zeros_like(x[:, :1]) + self.n_tokens, x])
+        x_input = x[:, :-1]
+        # x_input.shape = (batch_size, sequence_length, n_channels)
 
-        # Remove end of sequence token
-        return x[:, :-1]
+        y_true = x[:, 1:]
+        # y_true.shape = (batch_size, sequence_length, n_channels)
+
+        return x_input, y_true
 
 
 class CrossEntropyLossLayer(tf.keras.layers.Layer):
@@ -59,24 +55,28 @@ class CrossEntropyLossLayer(tf.keras.layers.Layer):
     ):
         super().__init__(**kwargs)
         self.loss_sequence_length = loss_sequence_length
-        self.accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name="accuracy")
 
-    def call(self, y_true, y_pred, **kwargs):
+    def call(self, inputs, **kwargs):
+        y_pred, y_true = inputs
         # y_true.shape = (batch_size, sequence_length, n_channels)
         # y_pred.shape = (batch_size, latent_sequence_length, n_channels, n_tokens)
 
         # Only calculate loss for the last loss_sequence_length tokens
-        y_true = y_true[:, -self.loss_sequence_length :]
         y_pred = y_pred[:, -self.loss_sequence_length :]
+        y_true = y_true[:, -self.loss_sequence_length :]
+        # y_true.shape = (batch_size, loss_sequence_length, n_channels)
+        # y_pred.shape = (batch_size, loss_sequence_length, n_channels, n_tokens)
 
-        loss = tf.reduce_mean(
-            tf.keras.losses.sparse_categorical_crossentropy(
-                y_true, y_pred, from_logits=True
-            )
+        loss = tf.keras.metrics.sparse_categorical_crossentropy(
+            y_true, y_pred, from_logits=True
         )
-        accuracy = self.accuracy(y_true, y_pred)
+        accuracy = tf.keras.metrics.sparse_categorical_accuracy(y_true, y_pred)
+        top_5_accuracy = tf.keras.metrics.sparse_top_k_categorical_accuracy(
+            y_true, y_pred, k=5
+        )
         self.add_loss(loss)
-        self.add_metric(accuracy, name="accuracy")
+        self.add_metric(accuracy, name="top_1")
+        self.add_metric(top_5_accuracy, name="top_5")
         return tf.expand_dims(loss, -1), y_pred
 
 
@@ -134,10 +134,10 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
             token_embedding_dim = embedding_dim
 
         self.token_embedding_layer = tf.keras.layers.Embedding(
-            n_tokens + 1, token_embedding_dim
+            n_tokens, token_embedding_dim
         )
         # Token embedding output layer
-        if token_embedding_dim != embedding_dim:
+        if token_embedding_dim is not None:
             self.token_embedding_output_layer = tf.keras.layers.Dense(embedding_dim)
         else:
             self.token_embedding_output_layer = IdentityLayer()
@@ -146,11 +146,11 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         if pos_embedding_dim is None:
             pos_embedding_dim = embedding_dim
 
-        self.position_embedding_layer = tf.keras.layers.Embedding(
-            sequence_length, pos_embedding_dim
+        self.position_embedding_layer = PositionEmbedding(
+            sequence_length=sequence_length, trainable=True
         )
         # Position embedding output layer
-        if pos_embedding_dim != embedding_dim:
+        if pos_embedding_dim is not None:
             self.position_embedding_output_layer = tf.keras.layers.Dense(embedding_dim)
         else:
             self.position_embedding_output_layer = IdentityLayer()
@@ -159,11 +159,11 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         if channel_embedding_dim is None:
             channel_embedding_dim = embedding_dim
 
-        self.channel_embedding_layer = tf.keras.layers.Embedding(
-            n_channels, channel_embedding_dim
+        self.channel_embedding_layer = PositionEmbedding(
+            sequence_length=n_channels, trainable=True
         )
         # Channel embedding output layer
-        if channel_embedding_dim != embedding_dim:
+        if channel_embedding_dim is not None:
             self.channel_embedding_output_layer = tf.keras.layers.Dense(embedding_dim)
         else:
             self.channel_embedding_output_layer = IdentityLayer()
@@ -187,7 +187,7 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
     def call(self, inputs, **kwargs):
         data, extra_labels = inputs
         # data.shape = (batch_size, sequence_length, n_channels)
-        # extra_labels[0].shape = (batch_size, sequence_length)
+        # extra_labels[0].shape = (batch_size, sequence_length + 1)
 
         # ---------- Token embeddings ---------- #
         x = data
@@ -197,21 +197,25 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         # embeddings.shape = (batch_size, sequence_length, n_channels, embedding_dim)
 
         # ---------- Position embeddings ---------- #
-        positions = tf.constant(
-            np.arange(self.sequence_length)[None, :, None], dtype=tf.int32
+        positions = tf.transpose(
+            tf.zeros(tf.concat([tf.shape(x), [self.pos_embedding_dim]], axis=0)),
+            perm=[0, 2, 1, 3],
         )
-        # positions.shape = (1, sequence_length, 1)
+        # positions.shape = (batch_size, n_channels, sequence_length, pos_embedding_dim)
 
-        embeddings += self.position_embedding_output_layer(
-            self.position_embedding_layer(positions)
+        embeddings += tf.transpose(
+            self.position_embedding_output_layer(
+                self.position_embedding_layer(positions)
+            ),
+            perm=[0, 2, 1, 3],
         )
         # embeddings.shape = (batch_size, sequence_length, n_channels, embedding_dim)
 
         # ---------- Channel embeddings ---------- #
-        channels = tf.constant(
-            np.arange(self.n_channels)[None, None, :], dtype=tf.int32
+        channels = tf.zeros(
+            tf.concat([tf.shape(x), [self.channel_embedding_dim]], axis=0)
         )
-        # channels.shape = (1, 1, n_channels)
+        # channels.shape = (batch_size, sequence_length, n_channels, channel_embedding_dim)
 
         embeddings += self.channel_embedding_output_layer(
             self.channel_embedding_layer(channels)
@@ -224,9 +228,9 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
             self.extra_embedding_layers,
             self.extra_embedding_output_layers,
         ):
-            # label.shape = (batch_size, sequence_length)
+            # label.shape = (batch_size, sequence_length + 1)
 
-            label = tf.expand_dims(label, -1)
+            label = tf.expand_dims(label[:, :-1], -1)
             # label.shape = (batch_size, sequence_length, 1)
 
             embeddings += output_layer(layer(label))
@@ -302,38 +306,29 @@ class DecoderLayer(tf.keras.layers.Layer):
 
         # ---------- Initialize layers ----------
 
+        # Input dropout layer
+        self.input_dropout_layer = tf.keras.layers.Dropout(dropout)
+
         # Multi-head attention layers (Special first layer)
         self.attention_layers = [
             MultiHeadPASSTALayer(
                 n_heads,
                 model_dim,
-                embedding_dim,
+                embedding_dim if i == 0 else model_dim,
                 n_channels,
-                sequence_length,
+                sequence_length if i == 0 else latent_sequence_length,
                 latent_sequence_length,
-                n_patches,
+                n_patches if i == 0 else latent_sequence_length // patch_length,
                 patch_length,
                 unpatched_length,
                 channel_attention_dropout,
                 within_channel_attention_dropout,
             )
+            for i in range(n_layers)
         ]
-        for _ in range(n_layers - 1):
-            self.attention_layers.append(
-                MultiHeadPASSTALayer(
-                    n_heads,
-                    model_dim,
-                    model_dim,
-                    n_channels,
-                    latent_sequence_length,
-                    latent_sequence_length,
-                    latent_sequence_length // patch_length,
-                    patch_length,
-                    unpatched_length,
-                    channel_attention_dropout,
-                    within_channel_attention_dropout,
-                )
-            )
+        self.attention_dropout_layers = [
+            tf.keras.layers.Dropout(dropout) for _ in range(n_layers)
+        ]
 
         # Normalization layers
 
@@ -360,38 +355,39 @@ class DecoderLayer(tf.keras.layers.Layer):
             )
             for _ in range(n_layers)
         ]
-        self.first_residual_layer = tf.keras.layers.Dense(model_dim)
 
     def call(self, inputs, training=None, **kwargs):
         # inputs.shape = (batch_size, sequence_length, n_channels, embedding_dim)
         x = inputs
+        x = self.input_dropout_layer(x, training=training, **kwargs)
+
         for i in range(self.n_layers):
+            # Input dropout
 
             # Residual connection
             x_residual = x
 
             # Attention layer
-            x = self.attention_layers[i](x, training=training)
+            x = self.attention_layers[i](x, training=training, **kwargs)
+            x = self.attention_dropout_layers[i](x, training=training, **kwargs)
 
             # Add to residual
-            if i == 0:
-                x_residual = self.first_residual_layer(x_residual)
             x = x + x_residual[:, -tf.shape(x)[1] :]
 
             # Normalization 1
-            x = self.normalization_layers_1[i](x, training=training)
+            x = self.normalization_layers_1[i](x, training=training, **kwargs)
 
             # Residual connection
             x_residual = x
 
             # Feed-forward layer
-            x = self.feed_forward_layers[i](x, training=training)
+            x = self.feed_forward_layers[i](x, training=training, **kwargs)
 
             # Add to residual
             x = x + x_residual
 
             # Normalization 2
-            x = self.normalization_layers_2[i](x, training=training)
+            x = self.normalization_layers_2[i](x, training=training, **kwargs)
 
         # x.shape = (batch_size, latent_sequence_length, n_channels, model_dim)
 
@@ -439,7 +435,7 @@ class EphysGPT(BaseModel):
         x = get_argument(self.model.fit, "x", args, kwargs)
 
         # Tokenise the data and build Data object
-        tokenized_x = self.tokenizer.tokenize_data(x)[0]
+        tokenized_x = self.tokenizer.tokenize_data(x)
         tokenized_x = Data(
             tokenized_x,
             store_dir=f"{getattr(x, 'store_dir', 'tmp')}/tokenized",
@@ -538,14 +534,21 @@ class EphysGPT(BaseModel):
         tokenizer_path = self.config.model_config.tokenizer_path
         if tokenizer_path is None:
             return None
-        return load_tokenizer(tokenizer_path)
+
+        _logger.info(f"Loaded tokenizer from {tokenizer_path}")
+        tokenizer = load_tokenizer(tokenizer_path)
+        n_tokens = len(tokenizer.vocab["token_order"]) + 1
+        _logger.info(f"Setting n_tokens to {n_tokens}")
+        self.config.model_config.n_tokens = n_tokens
+
+        return tokenizer
 
     def _build_model(self) -> tf.keras.Model:
         config = self.config.model_config
 
         # ---------- Inputs ---------- #
-        true_token = tf.keras.layers.Input(
-            shape=(config.sequence_length, config.n_channels),
+        data = tf.keras.layers.Input(
+            shape=(config.sequence_length + 1, config.n_channels),
             dtype=tf.int32,
             name="data",
         )
@@ -561,7 +564,7 @@ class EphysGPT(BaseModel):
             )
 
         # ---------- Initialize layers ---------- #
-        shift_token_layer = ShiftTokenLayer(config.n_tokens, name="shift_token")
+        shift_token_layer = ShiftTokenLayer(name="shift_token")
         input_embedding_layer = InputEmbeddingLayer(
             config.embedding_dim,
             config.n_tokens,
@@ -604,8 +607,9 @@ class EphysGPT(BaseModel):
         # ---------- Forward Pass ---------- #
 
         # Shift the tokens
-        x = shift_token_layer(true_token)
+        x, y_true = shift_token_layer(data)
         # x.shape = (batch_size, sequence_length, n_channels)
+        # y_true.shape = (batch_size, sequence_length, n_channels)
 
         # Get the input embeddings to the decoder
         x = input_embedding_layer([x, extra_labels])
@@ -616,15 +620,15 @@ class EphysGPT(BaseModel):
         # x.shape = (batch_size, latent_sequence_length, n_channels, model_dim)
 
         # Get the prediction of the next token
-        x = prediction_head_layer(x)
-        # x.shape = (batch_size, latent_sequence_length, n_channels, n_tokens)
+        y_pred = prediction_head_layer(x)
+        # y_pred.shape = (batch_size, latent_sequence_length, n_channels, n_tokens)
 
         # Calculate the loss
-        loss, x_pred = loss_layer(true_token, x)
+        loss, y_pred = loss_layer([y_pred, y_true])
 
         # ---------- Model ---------- #
         return tf.keras.Model(
-            inputs=[true_token] + extra_labels, outputs=[loss, x_pred], name="ephys_gpt"
+            inputs=[data] + extra_labels, outputs=[loss, y_pred], name="ephys_gpt"
         )
 
     def generate_tokens(
@@ -667,7 +671,7 @@ class EphysGPT(BaseModel):
 
         Returns
         -------
-        prompt : np.ndarray
+        generated_tokens : np.ndarray
             Generated tokens. Shape is (batch_size, n_samples, n_channels).
         """
         batch_size = batch_size or self.config.training_config.batch_size
@@ -707,27 +711,41 @@ class EphysGPT(BaseModel):
             if extra_labels[i].shape != (batch_size,):
                 raise ValueError(f"Extra label {i} must have shape (batch_size,).")
             extra_labels[i] = np.broadcast_to(
-                extra_labels[i][:, None], (batch_size, sequence_length)
+                extra_labels[i][:, None], (batch_size, sequence_length + 1)
             )
 
         # ---------- Generate tokens ---------- #
-        prompt = tf.constant(prompt, dtype=tf.int32)
-        for _ in trange(n_samples, desc="Generating tokens"):
-            place_holder = prompt[:, -sequence_length:]
-            # place_holder.shape = (batch_size, sequence_length, n_channels)
+        generated_tokens = np.zeros(
+            (batch_size, sequence_length + n_samples, n_channels), dtype=np.int32
+        )
+        generated_tokens[:, :sequence_length] = prompt
+        for i in trange(
+            sequence_length, sequence_length + n_samples, desc="Generating tokens"
+        ):
+            place_holder = generated_tokens[:, i - sequence_length : i + 1]
+            # place_holder.shape = (batch_size, sequence_length + 1, n_channels)
 
             # Prediction logits for the next token
-            logits = self.model([place_holder] + extra_labels)[1][:, -1] / temperature
+            logits = (
+                (
+                    self.model([place_holder] + extra_labels, training=False)[1][:, -1]
+                    / temperature
+                )
+                .numpy()
+                .astype(np.float32)
+            )
             # logits.shape = (batch_size, n_channels, n_tokens)
 
             # Sample the next token
-            next_token = sample_from_logits(logits=logits, method=method, p=p, k=k)
+            next_token = sample_from_logits(
+                logits=logits, method=method, p=p, k=k
+            ).numpy()
             # next_token.shape = (batch_size, n_channels)
 
             # Add the next token to the prompt
-            prompt = tf.concat([prompt, tf.expand_dims(next_token, 1)], axis=1)
+            generated_tokens[:, i] = next_token.astype(np.int32)
 
-        return prompt.numpy()[:, sequence_length:]
+        return generated_tokens[:, sequence_length:]
 
     def generate_data(self, **kwargs):
         """
@@ -740,7 +758,7 @@ class EphysGPT(BaseModel):
 
         Returns
         -------
-        prompt : np.ndarray
+        generated_data : np.ndarray
             Generated data. Shape is (batch_size, n_samples, n_channels).
         """
         tokens = self.generate_tokens(**kwargs)

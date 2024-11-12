@@ -24,20 +24,20 @@ data.standardize()
 config = f"""
     model_config:
         name: osl_tokenizer
-        sequence_length: 256
+        sequence_length: 200
         n_channels: {data.n_channels}
         n_tokens: 128
-        token_dim: 32
+        token_dim: 10
         rnn_n_units: 128
     training_config:
         optimizer:
-            learning_rate: 0.01
-        batch_size: 16
+            learning_rate: 0.0001
+        batch_size: 32
         n_epochs: 40
         temperature_annealing:
             n_stages: 40
             n_annealing_epochs: 40
-        lr_decay: 0.1
+            end_temperature: 0.0
 """
 
 # Build model

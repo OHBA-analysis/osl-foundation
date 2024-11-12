@@ -13,7 +13,7 @@ os.makedirs(plot_dir, exist_ok=True)
 simulation_config = {
     "n_groups": 1,
     "n_subjects_per_group": 20,
-    "true_freqs": np.array([10.0, 20.0]),
+    "true_freqs": np.array([7.0, 17.0]),
     "sampling_frequency": 100,
     "snr": 4.0,
     "data_dir": data_dir,

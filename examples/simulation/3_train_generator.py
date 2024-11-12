@@ -1,6 +1,9 @@
 import os
 from glob import glob
 
+import numpy as np
+import matplotlib.pyplot as plt
+
 from osl_dynamics.inference import tf_ops
 from osl_dynamics.data import Data
 
@@ -16,7 +19,8 @@ os.makedirs(plot_dir, exist_ok=True)
 os.makedirs(generator_dir, exist_ok=True)
 
 # Load data
-data = Data(sorted(glob(f"{data_dir}/*.npy")), use_tfrecord=True)
+data = Data(sorted(glob(f"{data_dir}/*.npy")))
+data.standardize()
 
 generator_config = f"""
     model_config:
@@ -26,10 +30,9 @@ generator_config = f"""
         n_channels: {data.n_channels}
         input_parameters:
             embedding_dim: 100
-            n_tokens: 128
             token_embedding_dim: 100
             pos_embedding_dim: 100
-            channel_embedding_dim: 100
+            channel_embedding_dim: 20
         decoder_parameters:
             n_layers: 4
             n_heads: 4
@@ -37,36 +40,26 @@ generator_config = f"""
             latent_sequence_length: 40
             n_patches: 20
             patch_length: 4
-            unpatched_length: 16
+            unpatched_length: 12
             channel_attention_dropout: 0.0
-            within_channel_attention_dropout: 0.0
+            within_channel_attention_dropout: 1.0
             feed_forward_dim: 100
             dropout: 0.2
         loss_parameters:
             loss_sequence_length: 8
     training_config:
         optimizer:
-            learning_rate: 0.0001
-        batch_size: 32
-        n_epochs: 40
-        checkpoint:
-            save_freq: 5
-            checkpoint_dir: {generator_dir}
+            learning_rate: 0.00002
+        batch_size: 8
+        n_epochs: 20
 """
 
 generator = create_model(generator_config)
 generator.summary()
-generator.save_config(generator_dir)
-
-generator.fit(
-    data,
-    validation_split=0.1,
-    use_tfrecord=True,
-    n_jobs=8,
-    step_size=generator.config.model_config.sequence_length // 4,
-)
+generator.fit(data, validation_split=0.1, use_tfrecord=True)
+generator.save(generator_dir)
 generator.plot_history(plot_dir=plot_dir, keyword="loss")
-generator.plot_history(plot_dir=plot_dir, keyword="accuracy")
+generator.plot_history(plot_dir=plot_dir, keyword="top")
 
 # Clean up directories
 data.delete_dir()
