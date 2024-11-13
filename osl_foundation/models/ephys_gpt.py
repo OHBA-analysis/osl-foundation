@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Union
 import logging
 
 import tensorflow as tf
@@ -551,7 +551,7 @@ class EphysGPT(BaseModel):
         for label in config.extra_labels:
             extra_labels.append(
                 tf.keras.layers.Input(
-                    shape=(config.sequence_length,),
+                    shape=(config.sequence_length + 1,),
                     dtype=tf.int32,
                     name=label.name,
                 )
@@ -636,7 +636,7 @@ class EphysGPT(BaseModel):
         batch_size: int = None,
         prompt: np.ndarray = None,
         extra_labels: List[np.ndarray] = None,
-    ):
+    ) -> np.ndarray:
         """
         Generate tokens using the model.
 
@@ -742,7 +742,7 @@ class EphysGPT(BaseModel):
 
         return generated_tokens[:, sequence_length:]
 
-    def generate_data(self, **kwargs):
+    def generate_data(self, **kwargs) -> Union[np.ndarray, List[np.ndarray]]:
         """
         Generate data using the model.
 
@@ -753,8 +753,36 @@ class EphysGPT(BaseModel):
 
         Returns
         -------
-        generated_data : np.ndarray
-            Generated data. Shape is (batch_size, n_samples, n_channels).
+        generated_data : np.ndarray or List[np.ndarray]
+            Generated data. Shape of each array is (n_samples, n_channels).
         """
         tokens = self.generate_tokens(**kwargs)
         return self.tokenizer.reconstruct_data(list(tokens))
+
+    def get_embeddings(self) -> dict:
+        """
+        Get the embeddings from the model.
+
+        Returns
+        -------
+        embeddings : dict
+            Dictionary of embeddings.
+        """
+        config = self.config.model_config
+        input_embedding_layer = self.model.get_layer("input_embedding")
+        embeddings = dict()
+        embeddings["token"] = (
+            input_embedding_layer.token_embedding_layer.embeddings.numpy()
+        )
+        embeddings["position"] = (
+            input_embedding_layer.position_embedding_layer.position_embeddings.numpy()
+        )
+        embeddings["channel"] = (
+            input_embedding_layer.channel_embedding_layer.position_embeddings.numpy()
+        )
+        for i, label in enumerate(config.extra_labels):
+            embeddings[label.name] = input_embedding_layer.extra_embedding_layers[
+                i
+            ].embeddings.numpy()
+
+        return embeddings
