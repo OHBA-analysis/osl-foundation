@@ -46,15 +46,20 @@ class CrossEntropyLossLayer(tf.keras.layers.Layer):
     ----------
     loss_sequence_length : int
         Number of tokens to calculate the loss for.
+    top_k : list, optional
+        List of top k values to calculate the accuracy for.
+        By default only top 1 accuracy is calculated.
     """
 
     def __init__(
         self,
         loss_sequence_length: int,
+        top_k: list = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.loss_sequence_length = loss_sequence_length
+        self.top_k = top_k or [1]
 
     def call(self, inputs, **kwargs):
         y_pred, y_true = inputs
@@ -70,13 +75,13 @@ class CrossEntropyLossLayer(tf.keras.layers.Layer):
         loss = tf.keras.metrics.sparse_categorical_crossentropy(
             y_true, y_pred, from_logits=True
         )
-        accuracy = tf.keras.metrics.sparse_categorical_accuracy(y_true, y_pred)
-        top_5_accuracy = tf.keras.metrics.sparse_top_k_categorical_accuracy(
-            y_true, y_pred, k=5
-        )
         self.add_loss(loss)
-        self.add_metric(accuracy, name="top_1")
-        self.add_metric(top_5_accuracy, name="top_5")
+        for k in self.top_k:
+            accuracy = tf.keras.metrics.sparse_top_k_categorical_accuracy(
+                y_true, y_pred, k=k
+            )
+            self.add_metric(accuracy, name=f"top_{k}")
+
         return tf.expand_dims(loss, -1), y_pred
 
 
@@ -130,59 +135,48 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         # ---------- Initialize layers ----------
 
         # The token embedding layer
-        if token_embedding_dim is None:
-            token_embedding_dim = embedding_dim
-
         self.token_embedding_layer = tf.keras.layers.Embedding(
-            n_tokens, token_embedding_dim
+            n_tokens, token_embedding_dim or embedding_dim
         )
-        # Token embedding output layer
-        if token_embedding_dim is not None:
-            self.token_embedding_output_layer = tf.keras.layers.Dense(embedding_dim)
-        else:
-            self.token_embedding_output_layer = IdentityLayer()
+        self.token_embedding_output_layer = (
+            IdentityLayer()
+            if token_embedding_dim is None
+            else tf.keras.layers.Dense(embedding_dim)
+        )
 
         # The position embedding layer
-        if pos_embedding_dim is None:
-            pos_embedding_dim = embedding_dim
-
         self.position_embedding_layer = PositionEmbedding(
             sequence_length=sequence_length, trainable=True
         )
-        # Position embedding output layer
-        if pos_embedding_dim is not None:
-            self.position_embedding_output_layer = tf.keras.layers.Dense(embedding_dim)
-        else:
-            self.position_embedding_output_layer = IdentityLayer()
+        self.position_embedding_output_layer = (
+            IdentityLayer()
+            if pos_embedding_dim is None
+            else tf.keras.layers.Dense(embedding_dim)
+        )
 
         # The channel embedding layer
-        if channel_embedding_dim is None:
-            channel_embedding_dim = embedding_dim
-
         self.channel_embedding_layer = PositionEmbedding(
             sequence_length=n_channels, trainable=True
         )
-        # Channel embedding output layer
-        if channel_embedding_dim is not None:
-            self.channel_embedding_output_layer = tf.keras.layers.Dense(embedding_dim)
-        else:
-            self.channel_embedding_output_layer = IdentityLayer()
+        self.channel_embedding_output_layer = (
+            IdentityLayer()
+            if channel_embedding_dim is None
+            else tf.keras.layers.Dense(embedding_dim)
+        )
 
         # The extra embedding layers
         self.extra_embedding_layers = []
         self.extra_embedding_output_layers = []
         for label in extra_labels:
-            label_dim = label.label_dim or embedding_dim
             n_classes = label.n_classes
             self.extra_embedding_layers.append(
-                tf.keras.layers.Embedding(n_classes, label_dim)
+                tf.keras.layers.Embedding(n_classes, label.label_dim or embedding_dim)
             )
-            if label_dim != embedding_dim:
-                self.extra_embedding_output_layers.append(
-                    tf.keras.layers.Dense(embedding_dim)
-                )
-            else:
-                self.extra_embedding_output_layers.append(IdentityLayer())
+            self.extra_embedding_output_layers.append(
+                IdentityLayer()
+                if label.label_dim is None
+                else tf.keras.layers.Dense(embedding_dim)
+            )
 
     def call(self, inputs, **kwargs):
         data, extra_labels = inputs
@@ -601,6 +595,7 @@ class EphysGPT(BaseModel):
         )
         loss_layer = CrossEntropyLossLayer(
             config.loss_sequence_length,
+            config.top_k,
             name="loss",
         )
 

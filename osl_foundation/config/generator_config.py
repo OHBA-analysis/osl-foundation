@@ -58,6 +58,7 @@ class EphysGPTModelConfig(BaseModelConfig):
 
     # ---------- Loss parameters ---------- #
     loss_sequence_length: int = None
+    top_k: list = None
 
     def validate(self) -> None:
         super().validate()
@@ -167,3 +168,4 @@ class EphysGPTModelConfig(BaseModelConfig):
         self.loss_sequence_length = config.get(
             "loss_sequence_length", self.sequence_length // 4
         )
+        self.top_k = config.get("top_k", None)
