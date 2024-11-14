@@ -1,5 +1,6 @@
 import os
 import logging
+from glob import glob
 from typing import Tuple, Union, List
 
 import pickle
@@ -676,7 +677,7 @@ class OSLTokenizer(BaseModel):
         """
 
         # Get simulated data and its ground truth
-        data_path = f"{data_dir}/x_{sess_id}.npy"
+        data_path = sorted(glob(f"{data_dir}/*.npy"))[sess_id]
         original_data = np.load(data_path)
         true_data = np.load(data_path.replace("x", "ground_truth/true_signal"))
 

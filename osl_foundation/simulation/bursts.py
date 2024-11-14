@@ -215,8 +215,11 @@ class Bursts:
         data, true_signal, mode_timecourses = self.simulate()
         np.save(f"{self.data_dir}/ground_truth/mode_tcs.npy", mode_timecourses)
         for i in range(self.n_subjects):
-            np.save(f"{self.data_dir}/x_{i}.npy", data[i])
-            np.save(f"{self.data_dir}/ground_truth/true_signal_{i}.npy", true_signal[i])
+            np.save(f"{self.data_dir}/x_{i:0{len(str(self.n_subjects))}d}.npy", data[i])
+            np.save(
+                f"{self.data_dir}/ground_truth/true_signal_{i:0{len(str(self.n_subjects))}d}.npy",
+                true_signal[i],
+            )
 
     def plot_data(
         self, plot_dir: str = None, channels_to_plot: Union[list, np.ndarray] = None
@@ -235,7 +238,10 @@ class Bursts:
         channels_to_plot : list, optional
             List of channels to plot. Default: all channels.
         """
-        data_files = [f"{self.data_dir}/x_{i}.npy" for i in range(self.n_subjects)]
+        data_files = [
+            f"{self.data_dir}/x_{i:0{len(str(self.n_subjects))}d}.npy"
+            for i in range(self.n_subjects)
+        ]
 
         mode_timecourses = np.load(f"{self.data_dir}/ground_truth/mode_tcs.npy")
 
@@ -269,10 +275,10 @@ class Bursts:
         index_to = index_from + 300
 
         true_signal_sub1 = np.load(
-            f"{self.data_dir}/ground_truth/true_signal_{sub1}.npy"
+            f"{self.data_dir}/ground_truth/true_signal_{sub1:0{len(str(self.n_subjects))}d}.npy"
         )
         true_signal_sub2 = np.load(
-            f"{self.data_dir}/ground_truth/true_signal_{sub2}.npy"
+            f"{self.data_dir}/ground_truth/true_signal_{sub2:0{len(str(self.n_subjects))}d}.npy"
         )
         data_sub1 = np.load(data_files[sub1])
         data_sub2 = np.load(data_files[sub2])
