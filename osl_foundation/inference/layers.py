@@ -63,6 +63,64 @@ class MSELossLayer(tf.keras.layers.Layer):
         return tf.expand_dims(loss, -1)
 
 
+class SinusoidalPositionalEncodingLayer(tf.keras.layers.Layer):
+    """
+    Layer for generating sinusoidal positional encoding for position embeddings.
+    Implemented as in "Attention is All You Need" (Vaswani et al., 2017), and partly
+    adpated from the `huggingface/transformers` library and TensorFlow
+    (https://www.tensorflow.org/text/tutorials/transformer).
+
+    Parameters
+    ----------
+    sequence_length : int
+        Length of the sequence.
+    """
+
+    def __init__(self, sequence_length: int, **kwargs):
+        super().__init__(**kwargs)
+        self.sequence_length = sequence_length
+
+    def call(self, inputs, **kwargs):
+        # Validation
+        embedding_dim = tf.shape(inputs)[-1]
+        tf.debugging.assert_equal(
+            tf.math.floormod(embedding_dim, 2),
+            tf.constant(0, dtype=tf.int32),
+            message="embedding dimension must be even for positional encoding.",
+        )
+
+        # Precompute scaling factor
+        embedding_dim_float = tf.cast(embedding_dim, tf.float32)
+        denominator = tf.math.pow(
+            10000.0,
+            2 * (tf.range(embedding_dim_float) // 2) / embedding_dim_float,
+        )
+
+        # Get position indices
+        position_indices = tf.range(self.sequence_length, dtype=tf.float32)[
+            :, tf.newaxis
+        ]
+        # position_indices.shape = (sequence_length, 1)
+
+        # Compute positional encoding
+        angle_rads = position_indices / denominator
+        # angle_rads.shape = (sequence_length, embedding_dim)
+        pos_encoding = tf.TensorArray(dtype=tf.float32, size=embedding_dim)
+        for i in range(embedding_dim):
+            if i % 2 == 0:
+                pos_encoding = pos_encoding.write(i, tf.sin(angle_rads[:, i]))
+            else:
+                pos_encoding = pos_encoding.write(i, tf.cos(angle_rads[:, i]))
+        pos_encoding = tf.transpose(pos_encoding.stack())
+        # pos_encoding.shape = (sequence_length, embedding_dim)
+
+        # Reshape the positions to match shapes of other embeddings
+        positions = tf.expand_dims(
+            tf.expand_dims(pos_encoding, axis=0), axis=0
+        )  # positions.shape = (1, 1, sequence_length, embedding_dim)
+        return positions
+
+
 class TokenWeightsLayer(tf.keras.layers.Layer):
     """
     Layer for computing token weights.
