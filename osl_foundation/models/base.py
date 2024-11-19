@@ -237,7 +237,7 @@ class BaseModel:
         """
 
         self.save_config(dirname)
-        self.model.save_weights(f"{dirname}/weights")
+        self.model.save_weights(f"{dirname}/weights.h5")
         with open(f"{dirname}/history.pkl", "wb") as f:
             pickle.dump(self.history, f)
 

@@ -51,13 +51,20 @@ generator_config = f"""
         optimizer:
             learning_rate: 0.00002
         batch_size: 8
-        n_epochs: 20
+        n_epochs: 40
+        save_best:
+            filepath: {generator_dir}/weights.h5
+            monitor: val_loss
+            save_best_only: true
+            save_weights_only: true
+            verbose: 1
 """
 
 generator = create_model(generator_config)
+generator.save_config(generator_dir)
 generator.summary()
+
 generator.fit(data, validation_split=0.1, use_tfrecord=True)
-generator.save(generator_dir)
 generator.plot_history(plot_dir=plot_dir, keyword="loss")
 generator.plot_history(plot_dir=plot_dir, keyword="top")
 
