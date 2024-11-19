@@ -730,7 +730,7 @@ def load_tokenizer(model_dir: str) -> OSLTokenizer:
         tokenizer = OSLTokenizer(config)
     else:
         raise NotImplementedError(f"Model {config.model_config.name} not implemented.")
-    tokenizer.load_weights(f"{model_dir}/weights").expect_partial()
+    tokenizer.load_weights(f"{model_dir}/weights.h5")
     with open(f"{model_dir}/history.pkl", "rb") as f:
         tokenizer.history = pickle.load(f)
     with open(f"{model_dir}/vocab.pkl", "rb") as f:
