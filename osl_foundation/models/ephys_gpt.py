@@ -13,6 +13,7 @@ from osl_foundation.models.tokenizers import OSLTokenizer, load_tokenizer
 from osl_foundation.config.generator_config import Label
 from osl_foundation.inference.layers import (
     IdentityLayer,
+    SinusoidalPositionalEncodingLayer,
     MultiHeadPASSTALayer,
     NormalizationLayer,
     PositionEmbedding,
@@ -104,6 +105,9 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         Dimension of the token embeddings. If None, it is set to embedding_dim.
     pos_embedding_dim : int, optional
         Dimension of the position embeddings. If None, it is set to embedding_dim.
+    use_sinusoidal_pos_embedding : bool, optional
+        Whether to use sinusoidal position embeddings. Defaults to False, which
+        uses learned embeddings.
     channel_embedding_dim : int, optional
         Dimension of the channel embeddings. If None, it is set to embedding_dim.
     extra_labels : List[Label], optional
@@ -118,6 +122,7 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         n_channels: int,
         token_embedding_dim: int = None,
         pos_embedding_dim: int = None,
+        use_sinusoidal_pos_embedding: bool = False,
         channel_embedding_dim: int = None,
         extra_labels: List[Label] = None,
         **kwargs,
@@ -145,14 +150,20 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         )
 
         # The position embedding layer
-        self.position_embedding_layer = PositionEmbedding(
-            sequence_length=sequence_length, trainable=True
-        )
-        self.position_embedding_output_layer = (
-            IdentityLayer()
-            if pos_embedding_dim is None
-            else tf.keras.layers.Dense(embedding_dim)
-        )
+        if use_sinusoidal_pos_embedding:
+            self.position_embedding_layer = SinusoidalPositionalEncodingLayer(
+                sequence_length=sequence_length,
+            )
+            self.position_embedding_output_layer = IdentityLayer()
+        else:
+            self.position_embedding_layer = PositionEmbedding(
+                sequence_length=sequence_length, trainable=True
+            )
+            self.position_embedding_output_layer = (
+                IdentityLayer()
+                if pos_embedding_dim is None
+                else tf.keras.layers.Dense(embedding_dim)
+            )
 
         # The channel embedding layer
         self.channel_embedding_layer = PositionEmbedding(
@@ -566,6 +577,7 @@ class EphysGPT(BaseModel):
             config.n_channels,
             config.token_embedding_dim,
             config.pos_embedding_dim,
+            config.use_sinusoidal_pos_embedding,
             config.channel_embedding_dim,
             config.extra_labels,
             name="input_embedding",
