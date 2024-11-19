@@ -200,6 +200,10 @@ def get_training_config(config: dict) -> BaseTrainingConfig:
             )
         )
 
+    if "save_best" in config:
+        save_best_kwargs = config["save_best"]
+        callbacks.append(tf.keras.callbacks.ModelCheckpoint(**save_best_kwargs))
+
     training_config.set_callbacks(callbacks)
 
     # Set strategy

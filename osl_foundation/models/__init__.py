@@ -59,7 +59,7 @@ def load_model(model_dir: str, from_checkpoint: bool = False):
             tf.train.latest_checkpoint(f"{model_dir}/checkpoints")
         ).expect_partial()
     else:
-        model.load_weights(f"{model_dir}/weights").expect_partial()
+        model.load_weights(f"{model_dir}/weights.h5")
 
     try:
         with open(f"{model_dir}/history.pkl", "rb") as f:
