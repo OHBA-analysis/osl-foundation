@@ -1,9 +1,6 @@
 import os
 from glob import glob
 
-import numpy as np
-import matplotlib.pyplot as plt
-
 from osl_dynamics.inference import tf_ops
 from osl_dynamics.data import Data
 
