@@ -7,7 +7,8 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
-from tqdm.auto import tqdm
+from pqdm.threads import pqdm
+from tqdm.auto import trange, tqdm
 
 from osl_dynamics.data import Data
 from osl_dynamics.array_ops import get_one_hot
@@ -138,11 +139,23 @@ class OSLTokenizer(BaseModel):
     def build_model(self) -> None:
         self.model = self._build_model()
 
-    def fit(self, *args, **kwargs) -> None:
+    def fit(self, *args, n_jobs=1, **kwargs) -> None:
+        """
+        Wrapper for the standard keras fit method.
+
+        Parameters
+        ----------
+        args : arguments
+            Arguments for :code:`tf.keras.Model.fit()`.
+        n_jobs : int, optional
+            Number of jobs to refactor vocab, by default 1.
+        kwargs : keyword arguments, optional
+            Keyword arguments for :code:`tf.keras.Model.fit()`.
+        """
         super().fit(*args, **kwargs)
         x = get_argument(self.model.fit, "x", args, kwargs)
         # Refactor vocabularies
-        self.refactor_vocab(x)
+        self.refactor_vocab(x, n_jobs=n_jobs)
 
     def save(self, dirname: str) -> None:
         super().save(dirname)
@@ -204,6 +217,8 @@ class OSLTokenizer(BaseModel):
         self,
         data: Data,
         concatenate: bool = False,
+        return_weights: bool = False,
+        n_jobs: int = 1,
     ) -> Tuple[
         Union[np.ndarray, List[np.ndarray]],
         Union[np.ndarray, List[np.ndarray]],
@@ -217,6 +232,10 @@ class OSLTokenizer(BaseModel):
             The data to tokenize.
         concatenate : bool, optional
             Whether to concatenate the tokens over all sessions, by default False.
+        return_weights : bool, optional
+            Whether the token weights are returned.
+        n_jobs : int, optional
+            Number of jobs to run in parallel, by default 1.
 
         Returns
         -------
@@ -224,6 +243,7 @@ class OSLTokenizer(BaseModel):
             The tokens for each session. Shape is (n_samples, n_channels).
         token_weights : Union[np.ndarray, List[np.ndarray]]
             The token weights for each token in each session.
+            Only returned if :code:`return_weights=True`.
             Shape is (n_samples, n_channels, n_tokens).
         """
 
@@ -231,31 +251,66 @@ class OSLTokenizer(BaseModel):
 
         def _tokenize_data_per_session(d):
             # Tokenize for a single session
-            tw = [self.model(x)[2] for x in d]
+            tw = np.concatenate([self.model(x, training=False)[2].numpy() for x in d])
 
-            # Concatenate over batches and sequences
-            tw = np.concatenate(np.concatenate(tw))
+            # Concatenate over sequences
+            tw = np.concatenate(tw)
             # tw.shape = (n_samples, n_channels, n_tokens)
-            return tw
 
-        _logger.info("Tokenizing data...")
-        token_weights = []
-        for d in tqdm(dataset, desc="Tokenizing data", total=len(dataset)):
-            token_weights.append(_tokenize_data_per_session(d))
+            # Get the token with the maximum weight
+            t = np.argmax(tw, axis=-1)
+            # t.shape = (n_samples, n_channels)
 
-        tokens = [np.argmax(tw, axis=-1) for tw in token_weights]
+            if return_weights:
+                return t, tw
+            return t
+
+        # Keywords for parallel processing
+        kwargs = [{"d": d} for d in dataset]
+
+        if len(dataset) == 1:
+            _logger.info("Tokenizing data...")
+            results = [_tokenize_data_per_session(**kwargs[0])]
+
+        elif n_jobs == 1:
+            results = []
+            for i in trange(len(dataset), desc="Tokenizing data"):
+                results.append(_tokenize_data_per_session(**kwargs[i]))
+
+        else:
+            results = pqdm(
+                kwargs,
+                _tokenize_data_per_session,
+                n_jobs=n_jobs,
+                desc="Tokenizing data",
+                argument_type="kwargs",
+                exception_behaviour="immediate",
+            )
+
+        # Unpack results
+        if return_weights:
+            tokens, token_weights = zip(*results)
+            tokens = list(tokens)
+            token_weights = list(token_weights)
+        else:
+            tokens = results
 
         if concatenate:
             tokens = np.concatenate(tokens)
-            token_weights = np.concatenate(token_weights)
+            if return_weights:
+                token_weights = np.concatenate(token_weights)
 
-        return tokens, token_weights
+        if return_weights:
+            return tokens, token_weights
+
+        return tokens
 
     def refactor_vocab(
         self,
         data: Data,
         sort: bool = True,
         trim: bool = True,
+        n_jobs: int = 1,
     ) -> None:
         """
         Refactor the vocabulary based on the data.
@@ -268,12 +323,14 @@ class OSLTokenizer(BaseModel):
             Should we sort the tokens by frequency?, by default True.
         trim : bool, optional
             Should we remove tokens with zero frequency?, by default True.
+        n_jobs : int, optional
+            Number of jobs to run in parallel, by default 1.
         """
 
         config = self.config.model_config
 
         _logger.info("Refactoring vocabulary...")
-        tokens = self._tokenize_data(data)[0]
+        tokens = self._tokenize_data(data, n_jobs=n_jobs)
 
         # Count the tokens across samples and channels for each session
         token_counts = np.array(
@@ -307,7 +364,7 @@ class OSLTokenizer(BaseModel):
         }
 
     def tokenize_data(
-        self, data: Data, concatenate: bool = False
+        self, data: Data, concatenate: bool = False, n_jobs: int = 1
     ) -> Union[np.ndarray, List[np.ndarray]]:
         """
         Tokenize data using the model and the refactored vocabularies.
@@ -318,6 +375,8 @@ class OSLTokenizer(BaseModel):
             The data to tokenize.
         concatenate : bool, optional
             Whether to concatenate the tokens over all sessions, by default False.
+        n_jobs : int, optional
+            Number of jobs to run in parallel, by default 1.
 
         Returns
         -------
@@ -326,7 +385,7 @@ class OSLTokenizer(BaseModel):
         """
         if not self.vocab:
             raise ValueError("Vocabularies are not refactored.")
-        tokens, _ = self._tokenize_data(data, concatenate=False)
+        tokens = self._tokenize_data(data, n_jobs=n_jobs)
 
         # Remap tokens to refactored tokens
         tokens = [self.vocab["label_map"][t] for t in tokens]
@@ -354,19 +413,14 @@ class OSLTokenizer(BaseModel):
 
         def _get_pve(d):
             # PVE for a single session
-            pve_ = []
-            for x in d:
-                original_x = x["data"]
-                reconstructed_x = self.model(x)[1]
-                pve_.append(
-                    100
-                    * (
-                        1
-                        - np.sum((original_x - reconstructed_x) ** 2)
-                        / np.sum(original_x**2)
-                    )
-                )
-            return np.mean(pve_)
+            original_x = np.concatenate([x["data"].numpy() for x in d])
+            reconstructed_x = np.concatenate(
+                [self.model(x, training=False)[1].numpy() for x in d]
+            )
+            pve = 100 * (
+                1 - np.sum((original_x - reconstructed_x) ** 2) / np.sum(original_x**2)
+            )
+            return pve
 
         _logger.info("Calculating Percentage of Variance Explained...")
         pve = []
@@ -688,7 +742,7 @@ class OSLTokenizer(BaseModel):
 
         # Get data reconstructed from tokens
         data = Data(data_path)
-        tokenized_data, token_weights = self._tokenize_data(data)
+        tokenized_data, token_weights = self._tokenize_data(data, return_weights=True)
         fitted_data = self._reconstruct_data(tokenized_data)
 
         # Plot data signals and token weights

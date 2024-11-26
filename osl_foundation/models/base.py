@@ -8,6 +8,7 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 
 from osl_dynamics.data import Data
+from osl_dynamics.data.tf import concatenate_datasets
 from osl_dynamics.inference import initializers as osld_initializers
 from osl_dynamics.utils.misc import get_argument, replace_argument
 
@@ -133,6 +134,9 @@ class BaseModel:
         elif isinstance(inputs, tf.data.Dataset) and not concatenate:
             # Dataset -> list of Dataset if concatenate=False
             outputs = [inputs]
+
+        elif isinstance(inputs, list) and concatenate:
+            outputs = concatenate_datasets(inputs)
 
         else:
             outputs = inputs
