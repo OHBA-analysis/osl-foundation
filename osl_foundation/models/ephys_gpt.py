@@ -416,6 +416,7 @@ class EphysGPT(BaseModel):
     def fit(
         self,
         *args,
+        tokenize: bool = True,
         use_tfrecord: bool = False,
         n_jobs: int = 1,
         step_size: int = None,
@@ -428,6 +429,8 @@ class EphysGPT(BaseModel):
         ----------
         *args : list
             Positional arguments to pass to the model's fit method.
+        tokenize: bool, optional
+            Whether to tokenize data before fitting model.
         use_tfrecord : bool, optional
             Whether to use tfrecord for the tokenized data.
         n_jobs : int, optional
@@ -437,21 +440,25 @@ class EphysGPT(BaseModel):
         **kwargs : dict
             Keyword arguments to pass to the model's fit method.
         """
-        x = get_argument(self.model.fit, "x", args, kwargs)
+        if tokenize:
+            x = get_argument(self.model.fit, "x", args, kwargs)
 
-        # Tokenise the data and build Data object
-        tokenized_x = self.tokenizer.tokenize_data(x)
-        tokenized_x = Data(
-            tokenized_x,
-            store_dir=f"{getattr(x, 'store_dir', 'tmp')}/tokenized",
-            use_tfrecord=use_tfrecord,
-            n_jobs=n_jobs,
-        )
-        tokenized_x.session_labels = x.session_labels
+            # Tokenise the data and build Data object
+            tokenized_x = self.tokenizer.tokenize_data(x)
+            tokenized_x = Data(
+                tokenized_x,
+                store_dir=f"{getattr(x, 'store_dir', 'tmp')}/tokenized",
+                use_tfrecord=use_tfrecord,
+                n_jobs=n_jobs,
+            )
+            tokenized_x.session_labels = x.session_labels
+        else:
+            tokenized_x = get_argument(self.model.fit, "x", args, kwargs)
 
         validation_split = get_argument(
             self.model.fit, "validation_split", args, kwargs
         )
+
         dataset = self.make_dataset(
             tokenized_x,
             shuffle=True,

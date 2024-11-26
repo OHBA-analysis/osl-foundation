@@ -52,9 +52,6 @@ model.fit(data)
 # Save model
 model.save(tokenizer_dir)
 
-# Refactor tokens
-model.refactor_vocab(data)
-
 # Plot percentage of explained variance
 model.plot_pve(data=data, plot_dir=plot_dir)
 
