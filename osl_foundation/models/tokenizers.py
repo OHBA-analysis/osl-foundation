@@ -713,37 +713,43 @@ class OSLTokenizer(BaseModel):
             plt.close(fig)
 
     def plot_fitted_signal(
-        self, data_dir, sess_id: int = 0, plot_dir: str = None
+        self, data_path: str, ground_truth_path: str = None, plot_dir: str = None
     ) -> None:
         """
         Plots a signal reconstructed from tokenized data and its token weights.
-        This method assumes that data are stored as {data_dir}/x_{sess_id}.npy,
-        and the ground truth is stored as {data_dir}/ground_truth/true_signal_{sess_id}.npy.
 
         Parameters
         ----------
-        data_dir : str
-            Directory containing the data files.
-        sess_id : int, optional
-            Session ID to read a data file from. Defaults to 0.
+        data_path : str
+            A path to a file containing the original data.
+        ground_truth_path : str, optional
+            A path to a file containing the ground truth data.
         plot_dir : str, optional
             Directory to save the plot.
         """
 
-        # Get simulated data and its ground truth
-        data_path = sorted(glob(f"{data_dir}/*.npy"))[sess_id]
-        original_data = np.load(data_path)
-        true_data = np.load(data_path.replace("x", "ground_truth/true_signal"))
+        def _load_and_normalize_data(file_path, tmp_dir):
+            """Load and normalize data from a given path."""
 
-        # Normalize data
-        normalize = lambda x: (x - np.mean(x, axis=0)) / np.std(x, axis=0)
-        original_data = normalize(original_data)
-        true_data = normalize(true_data)
+            # Define anonymous function
+            normalize = lambda x: (x - np.mean(x, axis=0)) / np.std(x, axis=0)
+
+            # Get data
+            dataset = Data(file_path, store_dir=tmp_dir)
+            data = normalize(dataset.arrays[0])
+            dataset.delete_dir()  # delete temporary directory
+            return data
+
+        # Get simulated data and its ground truth
+        original_data = _load_and_normalize_data(data_path, "tmp_org_data")
+        if ground_truth_path:
+            true_data = _load_and_normalize_data(ground_truth_path, "tmp_true_data")
 
         # Get data reconstructed from tokens
-        data = Data(data_path)
+        data = Data(data_path, store_dir="tmp_reconstruct")
         tokenized_data, token_weights = self._tokenize_data(data, return_weights=True)
         fitted_data = self._reconstruct_data(tokenized_data)
+        data.delete_dir()
 
         # Plot data signals and token weights
         n_channels = min(original_data.shape[1], 3)  # number of channels to plot
@@ -751,7 +757,8 @@ class OSLTokenizer(BaseModel):
         for n in range(n_channels):
             fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(20, 5))
             axes[0].plot(original_data[start_idx:end_idx, n], label="Original")
-            axes[0].plot(true_data[start_idx:end_idx, n], label="True")
+            if ground_truth_path:
+                axes[0].plot(true_data[start_idx:end_idx, n], label="True")
             axes[0].plot(fitted_data[start_idx:end_idx, n], label="Fitted")
             axes[0].set_title(f"Channel {n}: Data Signals")
             axes[0].legend()
@@ -759,9 +766,9 @@ class OSLTokenizer(BaseModel):
             axes[1].set_title(f"Token Weights")
             plt.tight_layout()
 
-            if plot_dir is not None:
+            if plot_dir:
                 os.makedirs(plot_dir, exist_ok=True)
-                fig.savefig(f"{plot_dir}/fitted_signal_sess{sess_id}_ch{n}.png")
+                fig.savefig(f"{plot_dir}/fitted_signal_ch{n}.png")
                 plt.close(fig)
 
 

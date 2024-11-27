@@ -61,8 +61,12 @@ model.plot_token_counts(plot_dir=plot_dir)
 # Plot stimulus response of token kernels
 model.plot_token_response(plot_dir=plot_dir)
 
-# Plot signals reconstructed from tokenized data
-model.plot_fitted_signal(data_dir, plot_dir=plot_dir)
+# Plot signals reconstructed from tokenized data (for one session)
+model.plot_fitted_signal(
+    data_path=f"{data_dir}/x_00.npy",
+    ground_truth_path=f"{data_dir}/ground_truth/true_signal_00.npy",
+    plot_dir=plot_dir,
+)
 
 # Clean up data directory
 data.delete_dir()
