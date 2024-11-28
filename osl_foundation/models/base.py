@@ -58,6 +58,7 @@ class BaseModel:
         step_size=None,
         drop_last_batch=False,
         validation_split=None,
+        repeat_count=1,
     ) -> Union[tf.data.Dataset, List[tf.data.Dataset]]:
         """
         Make a TensorFlow Dataset from an osl-dynamics Data object.
@@ -78,6 +79,8 @@ class BaseModel:
             Should we drop the last batch if it is smaller than the batch size?
         validation_split : float, optional
             Fraction of the data to use for validation.
+        repeat_count : int, optional
+            Number of times to repeat the dataset. Default is 1.
 
         Returns
         -------
@@ -118,6 +121,7 @@ class BaseModel:
                     step_size=step_size,
                     drop_last_batch=drop_last_batch,
                     validation_split=validation_split,
+                    repeat_count=repeat_count,
                     overwrite=True,
                 )
             else:
@@ -129,6 +133,7 @@ class BaseModel:
                     step_size=step_size,
                     drop_last_batch=drop_last_batch,
                     validation_split=validation_split,
+                    repeat_count=repeat_count,
                 )
 
         elif isinstance(inputs, tf.data.Dataset) and not concatenate:
@@ -155,10 +160,20 @@ class BaseModel:
         kwargs : keyword arguments, optional
             Keyword arguments for :code:`tf.keras.Model.fit()`.
         """
+        # If step_per_epoch is passed, repeat the dataset indefinitely
+        steps_per_epoch = get_argument(self.model.fit, "steps_per_epoch", args, kwargs)
+        repeat_count = 1 if steps_per_epoch is None else -1
+
         # If a osl_dynamics.data.Data object has been passed for the x
         # arguments, replace it with a tensorflow dataset
         x = get_argument(self.model.fit, "x", args, kwargs)
-        x = self.make_dataset(x, shuffle=True, concatenate=True, drop_last_batch=True)
+        x = self.make_dataset(
+            x,
+            shuffle=True,
+            concatenate=True,
+            drop_last_batch=True,
+            repeat_count=repeat_count,
+        )
         args, kwargs = replace_argument(self.model.fit, "x", x, args, kwargs)
 
         # Use the number of epochs in the config if it has not been passed
