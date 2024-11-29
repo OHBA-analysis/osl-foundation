@@ -52,13 +52,13 @@ class BaseModel:
 
     def make_dataset(
         self,
-        inputs,
-        shuffle=False,
-        concatenate=False,
-        step_size=None,
-        drop_last_batch=False,
-        validation_split=None,
-        repeat_count=1,
+        inputs: Union[Data, str, np.ndarray],
+        shuffle: bool = False,
+        concatenate: bool = False,
+        step_size: int = None,
+        drop_last_batch: bool = False,
+        validation_split: float = None,
+        repeat_count: int = 1,
     ) -> Union[tf.data.Dataset, List[tf.data.Dataset]]:
         """
         Make a TensorFlow Dataset from an osl-dynamics Data object.
