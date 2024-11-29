@@ -445,7 +445,7 @@ class OSLTokenizer(BaseModel):
         ----------
         tokens : Union[np.ndarray, List[np.ndarray]]
             The tokens to reconstruct.
-            Shape of tokens of each session: (n_samples, n_channels) or (n_samples,)
+            Shape of tokens of each session: (n_samples, n_channels).
         concatenate : bool, optional
             Whether to concatenate the reconstructed data over all sessions, by default False.
 
@@ -453,42 +453,51 @@ class OSLTokenizer(BaseModel):
         -------
         reconstructed_data : Union[np.ndarray, List[np.ndarray]]
             The reconstructed data.
-            Shape of reconstructed data of each session: (n_samples, n_channels) or (n_samples,)
+            Shape of reconstructed data of each session: (n_samples, n_channels).
         """
 
         if not isinstance(tokens, list):
             tokens = [tokens]
 
+        n_tokens = self.config.model_config.n_tokens
+        n_channels = self.config.model_config.n_channels
+        sequence_length = self.config.model_config.sequence_length
+
+        tokens = Data(tokens)
+        tokens = self.make_dataset(
+            tokens, shuffle=False, concatenate=False, drop_last_batch=False
+        )
+
         token_basis_layer = self.model.get_layer("decoder").token_basis_layer
 
         def _reconstruct_data_per_session(t):
-            n_tokens = self.config.model_config.n_tokens
+            # Reconstruct for a single session
+            _reconstructed_data = []
+            for x in t:
+                x = x["data"].numpy()
+                # x.shape = (batch_size, sequence_length, n_channels)
 
-            # Reconstruct for a single array of tokens
-            # t.shape = (n_samples, n_channels) or (n_samples,)
+                x = np.transpose(x, axes=(0, 2, 1))
+                # x.shape = (batch_size, n_channels, sequence_length)
 
-            if t.ndim == 1:
-                t = t[:, np.newaxis]
+                x = np.reshape(x, (-1, x.shape[-1]))
+                # x.shape = (batch_size * n_channels, sequence_length)
 
-            n_channels = t.shape[1]
-            t_one_hot = [
-                get_one_hot(t[:, n], n_tokens).astype(
-                    np.float32
-                )  # Shape: (n_samples, n_tokens)
-                for n in range(n_channels)
-            ]
+                x = tf.one_hot(x, n_tokens).numpy().astype(np.float32)
+                # x.shape = (batch_size * n_channels, sequence_length, n_tokens)
 
-            # Add batch dimension
-            t_one_hot = np.array(t_one_hot)  # having channel in batch dimension
-            # Shape: (n_channels, n_samples, n_tokens)
+                x = np.sum(token_basis_layer(x), axis=-1)
+                # x.shape = (batch_size * n_channels, sequence_length)
 
-            reconstructed_data = np.sum(token_basis_layer(t_one_hot), axis=-1)
-            # x.shape = (n_channels, n_samples)
+                x = np.reshape(x, (-1, n_channels, sequence_length))
+                # x.shape = (batch_size, n_channels, sequence_length)
 
-            # Reorder dimensions for consistency
-            reconstructed_data = np.transpose(reconstructed_data, axes=(1, 0))
+                x = np.transpose(x, axes=(0, 2, 1))
+                # x.shape = (batch_size, sequence_length, n_channels)
 
-            return reconstructed_data
+                _reconstructed_data.append(np.concatenate(x))
+
+            return np.concatenate(_reconstructed_data)
 
         reconstructed_data = []
         for t in tqdm(tokens, desc="Reconstructing data", total=len(tokens)):
