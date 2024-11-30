@@ -120,6 +120,103 @@ class SinusoidalPositionalEncodingLayer(tf.keras.layers.Layer):
         )  # positions.shape = (1, 1, sequence_length, embedding_dim)
         return positions
 
+class RotaryPositionEmbeddingLayer(tf.keras.layers.Layer):
+    """
+    Layer for generating Rotary Position Embedding (RoPE). Implemented as in 
+    "RoFormer: Enhanced Transformer with Rotary Position Embedding" (Su et al., 2022), and 
+    adpated from the PyTorch and Keras 3 libraries (see below for the reference).
+
+    References:
+    - https://pytorch.org/torchtune/0.2/_modules/torchtune/modules/position_embeddings.html#RotaryPositionalEmbeddings
+    - https://github.com/keras-team/keras-hub/blob/v0.17.0/keras_hub/src/layers/modeling/rotary_embedding.py
+
+    Parameters
+    ----------
+    embedding_dim : int
+        Dimension of the rotary position embedding. When using multi-head attention blocks,
+        the dimension is usually `embedding_dim // n_heads`.
+    max_sequence_length : int
+        Maximum expected length of the sequence. If the model dimensions of the key and 
+        query vectors differ, the sequence length should be the maximum of the two.
+    base : int, optional
+        The base value for computing the rotation angles.
+    """
+
+    def __init__(self, embedding_dim: int, max_sequence_length: int, base: int = 10000, **kwargs):
+        super().__init__(**kwargs)
+
+        # Validation
+        if embedding_dim % 2 != 0:
+            raise ValueError("embedding dimension must be even for positional encoding.")
+
+        self.embedding_dim = embedding_dim
+        self.max_sequence_length = max_sequence_length
+        self.base = base
+        self.rotation_values = self._compute_rotation_matrix()
+
+    def _compute_rotation_matrix(self) -> tf.Tensor:
+        # Compute pre-defined theta angles
+        theta = 1.0 / (
+            self.base ** (tf.range(0, self.embedding_dim, 2, dtype=tf.float32)[:(self.embedding_dim // 2)] / self.embedding_dim)
+        )
+        
+        # Create position indices
+        seq_idx = tf.range(self.max_sequence_length, dtype=tf.float32)
+        # NOTE: Having 0 as a starting index is okay, since we don't have to rotate the first position.
+        
+        # Computer outer product of position index and theta
+        idx_theta = tf.einsum("i,j->ij", seq_idx, theta)
+        # idx_theta.shape = (sequence_length, embedding_dim // 2)
+        
+        # Compute elements of the rotation matrix
+        rotation_values = tf.stack([tf.cos(idx_theta), tf.sin(idx_theta)], axis=-1)
+        # rotation_values.shape = (sequence_length, embedding_dim // 2, 2)
+
+        return rotation_values
+    
+    def call(self, inputs, **kwargs):
+        # Get input sequence length
+        sequence_length = tf.shape(inputs)[3]
+        # inputs.shape = (batch_size, n_heads, n_channels, sequence_length, key_dim)
+
+        # Validation
+        tf.debugging.assert_greater_equal(
+            self.max_sequence_length,
+            sequence_length,
+            message="input sequence length should not exceed max_sequence_length.",
+        )
+        tf.debugging.assert_equal(
+            tf.shape(inputs)[-1],
+            self.embedding_dim,
+            message="the model dimension of the input tensor must match the embedding dimension.",
+        )
+
+        # Reshape the rotation values to be compabitle with the input shape
+        rot_vals = tf.reshape(
+            self.rotation_values[:sequence_length],  
+            (1, 1, 1, sequence_length, self.embedding_dim // 2, 2),
+        )
+        # NOTE: We clip the rotation values to the sequence length, in case sequence_length is 
+        # less than max_sequence_length as the dimension for key and query differs.
+
+        # Match the input shape to the rope shape
+        rot_shape = tf.concat([tf.shape(inputs)[:-1], [self.embedding_dim // 2, 2]], axis=0)
+        x_reshaped = tf.reshape(inputs, rot_shape)
+        # x_reshaped.shape = (batch_size, n_heads, n_channels, sequence_length, key_dim // 2, 2)
+
+        # Calculate the rotary position embedding
+        rope = tf.stack([
+            rot_vals[..., 0] * x_reshaped[..., 0]
+            - rot_vals[..., 1] * x_reshaped[..., 1],
+            rot_vals[..., 1] * x_reshaped[..., 0]
+            + rot_vals[..., 0] * x_reshaped[..., 1],
+        ], axis=-1)
+        # rope.shape = (batch_size, n_heads, n_channels, sequence_length, key_dim // 2, 2)
+        rope = tf.reshape(rope, tf.shape(inputs))
+        # rope.shape = (batch_size, n_heads, n_channels, sequence_length, key_dim)
+        
+        return rope
+
 
 class TokenWeightsLayer(tf.keras.layers.Layer):
     """
