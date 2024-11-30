@@ -37,7 +37,7 @@ class EphysGPTModelConfig(BaseModelConfig):
 
     token_embedding_dim: int = None
     pos_embedding_dim: int = None
-    use_sinusoidal_pos_embedding: bool = False
+    pos_embedding_type: str = "absolute"
     channel_embedding_dim: int = None
     extra_labels: List[Label] = None
 
@@ -140,8 +140,8 @@ class EphysGPTModelConfig(BaseModelConfig):
         self.n_tokens = config.get("n_tokens", 128)
         self.token_embedding_dim = config.get("token_embedding_dim", None)
         self.pos_embedding_dim = config.get("pos_embedding_dim", None)
-        self.use_sinusoidal_pos_embedding = config.get(
-            "use_sinusoidal_pos_embedding", False
+        self.pos_embedding_type = config.get(
+            "pos_embedding_type", "absolute"
         )
         self.channel_embedding_dim = config.get("channel_embedding_dim", None)
         self.extra_labels = [Label(**label) for label in config.get("extra_labels", [])]
