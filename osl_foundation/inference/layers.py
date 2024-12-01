@@ -351,9 +351,10 @@ class TimeAttentionLayer(tf.keras.layers.Layer):
         Key dimension.
     """
 
-    def __init__(self, key_dim: int, **kwargs):
+    def __init__(self, key_dim: int, transform_attention: str = None, **kwargs):
         super().__init__(**kwargs)
         self.key_dim = key_dim
+        self.transform_attention = transform_attention
 
     def call(self, inputs, mask=None, **kwargs):
         # q (Query): (batch_size, n_heads, out_sequence_length, n_channels, key_dim)
@@ -371,6 +372,20 @@ class TimeAttentionLayer(tf.keras.layers.Layer):
 
         v = tf.transpose(v, perm=(0, 1, 3, 2, 4))
         # v: (batch_size, n_heads, n_channels, in_sequence_length, key_dim)
+
+        if self.transform_attention == "rope":
+            # Create a rotary position embedding layer
+            rotary_position_embedding_layer = RotaryPositionEmbeddingLayer(
+                embedding_dim=self.key_dim,
+                max_sequence_length=tf.cast(
+                    tf.math.maximum(tf.shape(q)[3], tf.shape(k)[3]),
+                    dtype=tf.int32,
+                ),
+            )
+
+            # Apply rotary position embedding to the query and key vectors
+            q = rotary_position_embedding_layer(q)
+            k = rotary_position_embedding_layer(k)
 
         # Compute attention
         attention = tf.matmul(q, k, transpose_b=True) / tf.math.sqrt(
@@ -461,6 +476,8 @@ class PASSTALayer(tf.keras.layers.Layer):
         Number of unpatched elements to attend to.
     key_dim : int
         Key dimension.
+    pos_embedding_type : str
+        Type of positional embedding to use.
     channel_attention_dropout : float
         Dropout rate for channel attention.
         Values greater than 1.0 means no channel attention.
@@ -479,6 +496,7 @@ class PASSTALayer(tf.keras.layers.Layer):
         patch_length: int,
         unpatched_length: int,
         key_dim: int,
+        pos_embedding_type : str,
         channel_attention_dropout: float,
         within_channel_attention_dropout: float,
         **kwargs,
@@ -487,6 +505,7 @@ class PASSTALayer(tf.keras.layers.Layer):
         self.n_channels = n_channels
         self.latent_sequence_length = latent_sequence_length
         self.key_dim = key_dim
+        self.pos_embedding_type = pos_embedding_type
         self.channel_attention_dropout = channel_attention_dropout
         self.within_channel_attention_dropout = within_channel_attention_dropout
         self.n_patches = n_patches
@@ -494,7 +513,7 @@ class PASSTALayer(tf.keras.layers.Layer):
         self.unpatched_length = unpatched_length
 
         # Time attention layer
-        self.time_attention_layer = TimeAttentionLayer(key_dim)
+        self.time_attention_layer = TimeAttentionLayer(key_dim, pos_embedding_type)
         # Mask for time attention (This is fixed).
         self.time_attention_mask = self._compute_time_attention_mask()
 
@@ -636,6 +655,8 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         Patch length.
     unpatched_length : int
         Number of unpatched elements to attend to.
+    pos_embedding_type : str
+        Type of positional embedding to use.
     channel_attention_dropout : float
         Dropout rate for channel attention.
         Values greater than 1.0 means no channel attention.
@@ -657,6 +678,7 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         n_patches: int,
         patch_length: int,
         unpatched_length: int,
+        pos_embedding_type: str,
         channel_attention_dropout: float,
         within_channel_attention_dropout: float,
         **kwargs,
@@ -672,6 +694,7 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         self.n_patches = n_patches
         self.patch_length = patch_length
         self.unpatched_length = unpatched_length
+        self.pos_embedding_type = pos_embedding_type
         self.channel_attention_dropout = channel_attention_dropout
         self.within_channel_attention_dropout = within_channel_attention_dropout
 
@@ -692,6 +715,7 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
             patch_length,
             unpatched_length,
             self.key_dim,
+            pos_embedding_type,
             channel_attention_dropout,
             within_channel_attention_dropout,
         )
@@ -794,7 +818,7 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
 
         # ---------- Process inputs ---------- #
         # Input is processed into 3 parts:
-        # 1. Patched input: patche_x
+        # 1. Patched input: patched_x
         # 2. Unpatched input: unpatched_x
         # 3. Perceiver input: perceiver_x
 

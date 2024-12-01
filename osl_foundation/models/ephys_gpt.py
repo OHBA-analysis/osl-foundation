@@ -271,6 +271,8 @@ class DecoderLayer(tf.keras.layers.Layer):
         Length of the patches.
     unpatched_length : int
         Length of the unpatched sequence.
+    pos_embedding_type : str
+        Type of positional embedding to use.
     channel_attention_dropout : float
         Dropout rate for the channel attention layer.
     within_channel_attention_dropout : float
@@ -299,6 +301,7 @@ class DecoderLayer(tf.keras.layers.Layer):
         n_patches: int,
         patch_length: int,
         unpatched_length: int,
+        pos_embedding_type: str,
         channel_attention_dropout: float,
         within_channel_attention_dropout: float,
         feed_forward_dim: int,
@@ -328,6 +331,7 @@ class DecoderLayer(tf.keras.layers.Layer):
                 n_patches if i == 0 else latent_sequence_length // patch_length,
                 patch_length,
                 unpatched_length,
+                pos_embedding_type,
                 channel_attention_dropout,
                 within_channel_attention_dropout,
             )
@@ -602,6 +606,7 @@ class EphysGPT(BaseModel):
             config.n_patches,
             config.patch_length,
             config.unpatched_length,
+            config.pos_embedding_type,
             config.channel_attention_dropout,
             config.within_channel_attention_dropout,
             config.feed_forward_dim,
