@@ -10,29 +10,36 @@ from osl_dynamics.data import Data
 from osl_foundation import load_model
 from osl_foundation.utils import plotting
 
+# Set GPU memory growth
 tf_ops.gpu_growth()
 
+# ---------- Directories ---------- #
 data_dir = "sim_data"
 generator_dir = "models/generator"
 plot_dir = "plots/generated_data"
 os.makedirs(plot_dir, exist_ok=True)
 
+# ---------- Load data ---------- #
 data_files = sorted(glob(f"{data_dir}/*.npy"))
 data = Data(data_files)
 data.standardize()
+
+# ---------- Load generator ---------- #
 generator = load_model(generator_dir)
 
-# Reconstructed data from the tokenizer
+# ---------- Reconstructed data from the tokenizer ---------- #
 tokens = generator.tokenizer.tokenize_data(data)
 reconstructed_data = generator.tokenizer.reconstruct_data(tokens)
 
-# Generate data using the generator
+# ---------- Generate data using the generator ---------- #
 generated_data = generator.generate_data(
     n_samples=2048,
     method="top_k",
     k=int(generator.config.model_config.n_tokens * 0.8),
     batch_size=len(data_files),
 )
+
+# ---------- Plot results ---------- #
 
 # Compare AEC of original, reconstructed and generated data
 plotting.plot_aec(
@@ -45,10 +52,11 @@ plotting.plot_aec(
     filename=f"{plot_dir}/aec.png",
 )
 
+# Plot Time frequency content of original, reconstructed and generated data
 original_data = np.concatenate(data.time_series())
 reconstructed_data = np.concatenate(reconstructed_data)
 generated_data = np.concatenate(generated_data)
-# Plot Time frequency content of original, reconstructed and generated data
+
 plotting.plot_time_frequency(
     original_data,
     reconstructed_data,

@@ -6,8 +6,10 @@ from osl_dynamics.data import Data
 
 from osl_foundation import create_model
 
+# Set GPU memory growth
 tf_ops.gpu_growth()
 
+# ---------- Directories ---------- #
 data_dir = "sim_data"
 plot_dir = "plots/generator"
 tokenizer_dir = "models/tokenizer"
@@ -15,10 +17,13 @@ generator_dir = "models/generator"
 os.makedirs(plot_dir, exist_ok=True)
 os.makedirs(generator_dir, exist_ok=True)
 
-# Load data
+# ---------- Load data ---------- #
 data = Data(sorted(glob(f"{data_dir}/*.npy")))
+
+# Standardize the data
 data.standardize()
 
+# ---------- Build generator ---------- #
 generator_config = f"""
     model_config:
         name: ephys_gpt
@@ -38,8 +43,8 @@ generator_config = f"""
             n_patches: 20
             patch_length: 4
             unpatched_length: 12
-            channel_attention_dropout: 0.0
-            within_channel_attention_dropout: 1.0
+            channel_attention_dropout: 1.0
+            within_channel_attention_dropout: 0.0
             feed_forward_dim: 100
             dropout: 0.2
         loss_parameters:
@@ -61,7 +66,10 @@ generator = create_model(generator_config)
 generator.save_config(generator_dir)
 generator.summary()
 
+# ---------- Fit generator ---------- #
 generator.fit(data, validation_split=0.1, use_tfrecord=True)
+
+# ---------- Plot training curves ---------- #
 generator.plot_history(plot_dir=plot_dir, keyword="loss")
 generator.plot_history(plot_dir=plot_dir, keyword="top")
 
