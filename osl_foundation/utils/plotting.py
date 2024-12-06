@@ -16,6 +16,8 @@ def plot_time_series_summary(
     n_samples: int = None,
     axes: List[plt.Axes] = None,
     filename: str = None,
+    color: str = "black",
+    label: str = None,
 ):
     """
     Plot a summary of the time series, including the time series itself,
@@ -36,6 +38,10 @@ def plot_time_series_summary(
         be created.
     filename : str, optional
         If provided, the figure will be saved to this filename.
+    color : str, optional
+        Color of the time series plot. Default is 'black'.
+    label : str, optional
+        Label for the time series plot. Default is None.
 
     Returns
     -------
@@ -55,7 +61,7 @@ def plot_time_series_summary(
         fig = axes[0].get_figure()
 
     # Plot the time series
-    axes[0].plot(timestamps, time_series[:n_samples], color="black")
+    axes[0].plot(timestamps, time_series[:n_samples], color=color)
     axes[0].set_xlabel("Time (s)")
 
     # Plot the time frequency content
@@ -69,7 +75,7 @@ def plot_time_series_summary(
     f, Pxx = signal.welch(
         time_series[:n_samples], fs=sampling_frequency, nperseg=2 * sampling_frequency
     )
-    axes[2].plot(f, Pxx, color="black")
+    axes[2].plot(f, Pxx, color=color, label=label)
     axes[2].set_xlabel("Frequency (Hz)")
 
     if filename is not None:

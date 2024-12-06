@@ -6,21 +6,23 @@ from osl_dynamics.data import Data
 
 from osl_foundation import create_model
 
+# Set GPU memory growth
 tf_ops.gpu_growth()
 
+# ---------- Directories ---------- #
 data_dir = "sim_data"
 plot_dir = "plots/tokenizer"
 tokenizer_dir = "models/tokenizer"
 os.makedirs(plot_dir, exist_ok=True)
 os.makedirs(tokenizer_dir, exist_ok=True)
 
-# Load data
+# ---------- Load data ---------- #
 data = Data(sorted(glob(f"{data_dir}/*.npy")), use_tfrecord=True)
 
 # Standardize the data
 data.standardize()
 
-# Model and training configuration
+# ---------- Build tokenizer ---------- #
 config = f"""
     model_config:
         name: osl_tokenizer
@@ -46,11 +48,14 @@ model = create_model(config)
 # Print summary of model
 model.summary()
 
-# Fit model
+# ---------- Fit tokenizer ---------- #
 model.fit(data)
 
-# Save model
+# ---------- Save tokenizer ---------- #
 model.save(tokenizer_dir)
+
+
+# ---------- summary plots ---------- #
 
 # Plot percentage of explained variance
 model.plot_pve(data=data, plot_dir=plot_dir)
