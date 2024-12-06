@@ -70,57 +70,87 @@ plotting.plot_time_frequency(
 # Plot summary of the original, reconstructed and generated data
 
 # Channel 0
-fig, axes = plt.subplots(3, 3, figsize=(15, 10))
+fig = plt.figure(figsize=(10, 10))
+ax_1 = [fig.add_subplot(3, 3, i) for i in range(1, 4)]
+ax_2 = [fig.add_subplot(3, 3, i) for i in range(4, 7)]
+ax_3 = fig.add_subplot(3, 1, 3)
+
 plotting.plot_time_series_summary(
     original_data[:, 0],
     sampling_frequency=100,
     n_samples=6000,  # 60 seconds
-    axes=axes[:, 0],
+    axes=[ax_1[0], ax_2[0], ax_3],
+    color="black",
+    label="Original",
 )
 plotting.plot_time_series_summary(
     reconstructed_data[:, 0],
     sampling_frequency=100,
     n_samples=6000,  # 60 seconds
-    axes=axes[:, 1],
+    axes=[ax_1[1], ax_2[1], ax_3],
+    color="green",
+    label="Reconstructed",
 )
 plotting.plot_time_series_summary(
     generated_data[:, 0],
     sampling_frequency=100,
     n_samples=6000,  # 60 seconds
-    axes=axes[:, 2],
+    axes=[ax_1[2], ax_2[2], ax_3],
+    color="red",
+    label="Generated",
 )
-axes[0, 0].set_title("Original")
-axes[0, 1].set_title("Reconstructed")
-axes[0, 2].set_title("Generated")
 fig.suptitle("Time series summary (channel 0)")
+fig.legend(
+    loc="lower center",
+    ncol=3,
+    fontsize=14,
+    bbox_to_anchor=(0.5, -0.05),
+    fancybox=True,
+    shadow=True,
+)
 fig.tight_layout()
 fig.savefig(f"{plot_dir}/summary_0.png")
 plt.close(fig)
 
 # Channel 2
-fig, axes = plt.subplots(3, 3, figsize=(15, 10))
+fig = plt.figure(figsize=(10, 10))
+ax_1 = [fig.add_subplot(3, 3, i) for i in range(1, 4)]
+ax_2 = [fig.add_subplot(3, 3, i) for i in range(4, 7)]
+ax_3 = fig.add_subplot(3, 1, 3)
+
 plotting.plot_time_series_summary(
     original_data[:, 2],
     sampling_frequency=100,
     n_samples=6000,  # 60 seconds
-    axes=axes[:, 0],
+    axes=[ax_1[0], ax_2[0], ax_3],
+    color="black",
+    label="Original",
 )
 plotting.plot_time_series_summary(
     reconstructed_data[:, 2],
     sampling_frequency=100,
     n_samples=6000,  # 60 seconds
-    axes=axes[:, 1],
+    axes=[ax_1[1], ax_2[1], ax_3],
+    color="green",
+    label="Reconstructed",
 )
 plotting.plot_time_series_summary(
     generated_data[:, 2],
     sampling_frequency=100,
     n_samples=6000,  # 60 seconds
-    axes=axes[:, 2],
+    axes=[ax_1[2], ax_2[2], ax_3],
+    color="red",
+    label="Generated",
 )
-axes[0, 0].set_title("Original")
-axes[0, 1].set_title("Reconstructed")
-axes[0, 2].set_title("Generated")
 fig.suptitle("Time series summary (channel 2)")
+fig.legend(
+    loc="lower center",
+    ncol=3,
+    fontsize=14,
+    bbox_to_anchor=(0.5, -0.05),
+    fancybox=True,
+    shadow=True,
+)
 fig.tight_layout()
 fig.savefig(f"{plot_dir}/summary_2.png")
 plt.close(fig)
