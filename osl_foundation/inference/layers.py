@@ -218,6 +218,123 @@ class RotaryPositionEmbeddingLayer(tf.keras.layers.Layer):
         return rope
 
 
+class ALiBiPositionEmbeddingLayer(tf.keras.layers.Layer):
+    """
+    Layer for generating Attention with Linear Biases (ALiBi) position embedding. Implemented 
+    based on "Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation"
+    (Press et al., 2022) and adapted from the references below.
+
+    References:
+    - https://github.com/ofirpress/attention_with_linear_biases
+    - https://nn.labml.ai/transformers/alibi/index.html
+
+    Parameters
+    ----------
+    n_heads : int
+        Number of attention heads.
+    n_patches : int
+        Number of patches to attend to.
+    patch_length : int
+        Patch length.
+    unpatched_length : int
+        Number of unpatched elements to attend to.
+    """
+
+    def __init__(
+        self,
+        n_heads: int,
+        n_patches: int,
+        patch_length: int,
+        unpatched_length: int,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.n_heads = n_heads
+        self.n_patches = n_patches
+        self.patch_length = patch_length
+        self.unpatched_length = unpatched_length
+
+    def _get_slopes(self) -> tf.Tensor:
+        # Compute the slopes for the linear biases (static, non-learned)
+        h = tf.cast(self.n_heads, tf.float32)
+        n = 2 ** tf.math.floor(tf.math.log(h) / tf.math.log(2.0))  # nearest power of 2
+        ratio = tf.pow(2.0, -8.0 / n)
+        m = tf.pow(ratio, tf.range(1, tf.cast(n, tf.int32) + 1, dtype=tf.float32))  # head-specific slopes
+
+        # When n_heads is not a power of 2, then we add additional slopes
+        if n < h:
+            ratio_hat = tf.pow(2.0, -4.0 / n)
+            m_hat = tf.pow(ratio_hat, tf.range(1, 1 + 2 * (h - n), 2, dtype=tf.float32))
+            m = tf.concat([m, m_hat], axis=0)
+        
+        return m
+
+    def _get_relative_bias_matrix(self, mask: tf.Tensor) -> tf.Tensor:
+        # Get head-specific slopes
+        m = self._get_slopes()
+
+        # Get a binary masking matrix
+        mask = 1 - mask
+        cum_mask = tf.cumsum(mask, axis=0)  # cumulative sum of the mask
+
+        # Compute a distance matrix
+        latent_sequence_length = tf.shape(mask)[0]
+        distance = tf.zeros(tf.shape(mask), dtype=tf.float32) 
+        # NOTE: In the mask matrix, columns are the targets and rows are where you attend to.
+
+        for i in range(self.n_patches):  # patch masking
+            avg_idx = ((self.patch_length * i + 1) + self.patch_length * (i + 1)) / 2
+            updates = tf.cast(
+                -(cum_mask[:, i] + self.patch_length * (i + 1)) + avg_idx,
+                dtype=tf.float32,
+            )
+            full_indices = tf.stack([
+                tf.range(latent_sequence_length),  # row indices
+                tf.fill([latent_sequence_length], i),  # column index i repeated
+            ], axis=1)
+            distance = tf.tensor_scatter_nd_update(
+                distance,
+                indices=full_indices,
+                updates=updates,
+            )
+        # NOTE: Considering a patch as a single receptive field, we calculate relative distance between the patch 
+        # and the current sequence index (i.e., the distance between the center of the patch and the current index).
+        # This amounts to the average distance between the current index and all the indices in the patch.
+
+        for i in range(self.n_patches, self.n_patches + self.unpatched_length):  # unpatched masking
+            updates = tf.cast(-cum_mask[:, i], dtype=tf.float32)
+            full_indices = tf.stack([
+                tf.range(latent_sequence_length),  # row indices
+                tf.fill([latent_sequence_length], i),  # column index i repeated
+            ], axis=1)
+            distance = tf.tensor_scatter_nd_update(
+                distance,
+                indices=full_indices,
+                updates=updates,
+            )
+        # distance.shape = (latent_sequence_length, n_patches + unpatched_length)
+
+        # Compute head-specific relative bias matrices
+        masked_distance = distance * mask
+        alibi_matrix = masked_distance[None, :, :] * m[:, None, None]
+        # alibi_matrix.shape = (n_heads, latent_sequence_length, n_patches + unpatched_length)
+
+        return alibi_matrix
+
+    def call(self, inputs, mask: tf.Tensor, **kwargs):
+        # Get the relative bias matrix
+        alibi_matrix = self._get_relative_bias_matrix(mask)
+        # alibi_matrix.shape = (n_heads, latent_sequence_length, n_patches + unpatched_length)
+
+        # Reshape the relative bias matrix to match the attention matrix
+        alibi_matrix = tf.reshape(alibi_matrix, (1, self.n_heads, 1, tf.shape(mask)[0], tf.shape(mask)[1]))
+
+        # Add the relative bias matrix to the attention matrix
+        attention_with_alibi = inputs + alibi_matrix
+        # attention_with_alibi.shape = (batch_size, n_heads, n_channels, out_sequence_length, in_sequence_length)
+        return attention_with_alibi
+
+
 class TokenWeightsLayer(tf.keras.layers.Layer):
     """
     Layer for computing token weights.
@@ -351,9 +468,20 @@ class TimeAttentionLayer(tf.keras.layers.Layer):
         Key dimension.
     """
 
-    def __init__(self, key_dim: int, transform_attention: str = None, **kwargs):
+    def __init__(
+        self,
+        key_dim: int,
+        n_patches: int,
+        patch_length: int,
+        unpatched_length: int,
+        transform_attention: str = None,
+        **kwargs
+    ):
         super().__init__(**kwargs)
         self.key_dim = key_dim
+        self.n_patches = n_patches
+        self.patch_length = patch_length
+        self.unpatched_length = unpatched_length
         self.transform_attention = transform_attention
 
     def call(self, inputs, mask=None, **kwargs):
@@ -392,6 +520,18 @@ class TimeAttentionLayer(tf.keras.layers.Layer):
             tf.cast(self.key_dim, tf.float32)
         )
         # attention: (batch_size, n_heads, n_channels, out_sequence_length, in_sequence_length)
+
+        if self.transform_attention == "alibi":
+            # Create an ALiBi position embedding layer
+            alibi_position_embedding_layer = ALiBiPositionEmbeddingLayer(
+                n_heads=tf.shape(q)[1],
+                n_patches=self.n_patches,
+                patch_length=self.patch_length,
+                unpatched_length=self.unpatched_length,
+            )
+
+            # Apply ALiBi position embedding to the attention matrix
+            attention = alibi_position_embedding_layer(attention, mask=mask)
 
         # Apply mask
         if mask is not None:
@@ -513,7 +653,9 @@ class PASSTALayer(tf.keras.layers.Layer):
         self.unpatched_length = unpatched_length
 
         # Time attention layer
-        self.time_attention_layer = TimeAttentionLayer(key_dim, pos_embedding_type)
+        self.time_attention_layer = TimeAttentionLayer(
+            key_dim, n_patches, patch_length, unpatched_length, pos_embedding_type
+        )
         # Mask for time attention (This is fixed).
         self.time_attention_mask = self._compute_time_attention_mask()
 
