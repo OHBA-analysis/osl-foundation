@@ -105,9 +105,9 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         Dimension of the token embeddings. If None, it is set to embedding_dim.
     pos_embedding_dim : int, optional
         Dimension of the position embeddings. If None, it is set to embedding_dim.
-    use_sinusoidal_pos_embedding : bool, optional
-        Whether to use sinusoidal position embeddings. Defaults to False, which
-        uses learned embeddings.
+    pos_embedding_type : str, optional
+        Type of the position embeddings. Defaults to "absolute", which uses learned
+        absolute position embeddings.
     channel_embedding_dim : int, optional
         Dimension of the channel embeddings. If None, it is set to embedding_dim.
     extra_labels : List[Label], optional
@@ -122,7 +122,7 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         n_channels: int,
         token_embedding_dim: int = None,
         pos_embedding_dim: int = None,
-        use_sinusoidal_pos_embedding: bool = False,
+        pos_embedding_type: str = "absolute",
         channel_embedding_dim: int = None,
         extra_labels: List[Label] = None,
         **kwargs,
@@ -134,6 +134,7 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         self.n_channels = n_channels
         self.token_embedding_dim = token_embedding_dim
         self.pos_embedding_dim = pos_embedding_dim
+        self.pos_embedding_type = pos_embedding_type
         self.channel_embedding_dim = channel_embedding_dim
         self.extra_labels = extra_labels
 
@@ -150,12 +151,12 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         )
 
         # The position embedding layer
-        if use_sinusoidal_pos_embedding:
+        if pos_embedding_type == "sinusoidal":
             self.position_embedding_layer = SinusoidalPositionalEncodingLayer(
                 sequence_length=sequence_length,
             )
             self.position_embedding_output_layer = IdentityLayer()
-        else:
+        elif pos_embedding_type == "absolute":
             self.position_embedding_layer = PositionEmbedding(
                 sequence_length=sequence_length, trainable=True
             )
@@ -202,19 +203,20 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         # embeddings.shape = (batch_size, sequence_length, n_channels, embedding_dim)
 
         # ---------- Position embeddings ---------- #
-        positions = tf.transpose(
-            tf.zeros(tf.concat([tf.shape(x), [self.pos_embedding_dim]], axis=0)),
-            perm=[0, 2, 1, 3],
-        )
-        # positions.shape = (batch_size, n_channels, sequence_length, pos_embedding_dim)
+        if self.pos_embedding_type in ["absolute", "sinusoidal"]:
+            positions = tf.transpose(
+                tf.zeros(tf.concat([tf.shape(x), [self.pos_embedding_dim]], axis=0)),
+                perm=[0, 2, 1, 3],
+            )
+            # positions.shape = (batch_size, n_channels, sequence_length, pos_embedding_dim)
 
-        embeddings += tf.transpose(
-            self.position_embedding_output_layer(
-                self.position_embedding_layer(positions)
-            ),
-            perm=[0, 2, 1, 3],
-        )
-        # embeddings.shape = (batch_size, sequence_length, n_channels, embedding_dim)
+            embeddings += tf.transpose(
+                self.position_embedding_output_layer(
+                    self.position_embedding_layer(positions)
+                ),
+                perm=[0, 2, 1, 3],
+            )
+            # embeddings.shape = (batch_size, sequence_length, n_channels, embedding_dim)
 
         # ---------- Channel embeddings ---------- #
         channels = tf.zeros(
@@ -269,6 +271,8 @@ class DecoderLayer(tf.keras.layers.Layer):
         Length of the patches.
     unpatched_length : int
         Length of the unpatched sequence.
+    pos_embedding_type : str
+        Type of positional embedding to use.
     channel_attention_dropout : float
         Dropout rate for the channel attention layer.
     within_channel_attention_dropout : float
@@ -297,6 +301,7 @@ class DecoderLayer(tf.keras.layers.Layer):
         n_patches: int,
         patch_length: int,
         unpatched_length: int,
+        pos_embedding_type: str,
         channel_attention_dropout: float,
         within_channel_attention_dropout: float,
         feed_forward_dim: int,
@@ -326,6 +331,7 @@ class DecoderLayer(tf.keras.layers.Layer):
                 n_patches if i == 0 else latent_sequence_length // patch_length,
                 patch_length,
                 unpatched_length,
+                pos_embedding_type,
                 channel_attention_dropout,
                 within_channel_attention_dropout,
             )
@@ -589,7 +595,7 @@ class EphysGPT(BaseModel):
             config.n_channels,
             config.token_embedding_dim,
             config.pos_embedding_dim,
-            config.use_sinusoidal_pos_embedding,
+            config.pos_embedding_type,
             config.channel_embedding_dim,
             config.extra_labels,
             name="input_embedding",
@@ -605,6 +611,7 @@ class EphysGPT(BaseModel):
             config.n_patches,
             config.patch_length,
             config.unpatched_length,
+            config.pos_embedding_type,
             config.channel_attention_dropout,
             config.within_channel_attention_dropout,
             config.feed_forward_dim,
