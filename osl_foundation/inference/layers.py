@@ -164,7 +164,7 @@ class RotaryPositionEmbeddingLayer(tf.keras.layers.Layer):
         seq_idx = tf.range(self.max_sequence_length, dtype=tf.float32)
         # NOTE: Having 0 as a starting index is okay, since we don't have to rotate the first position.
         
-        # Computer outer product of position index and theta
+        # Compute outer product of position index and theta
         idx_theta = tf.einsum("i,j->ij", seq_idx, theta)
         # idx_theta.shape = (sequence_length, embedding_dim // 2)
         
@@ -443,12 +443,26 @@ class TimeAttentionLayer(tf.keras.layers.Layer):
 
     Parameters
     ----------
+    n_heads : int
+        Number of heads.
+    latent_sequence_length : int
+        Sequence length of latent space.
     key_dim : int
         Key dimension.
+    n_patches : int
+        Number of patches to attend to.
+    patch_length : int
+        Patch length.
+    unpatched_length : int
+        Number of unpatched elements to attend to.
+    transform_attention : str, optional
+        Type of attention transformation to apply.
     """
 
     def __init__(
         self,
+        n_heads: int,
+        latent_sequence_length : int,
         key_dim: int,
         n_patches: int,
         patch_length: int,
@@ -457,11 +471,29 @@ class TimeAttentionLayer(tf.keras.layers.Layer):
         **kwargs
     ):
         super().__init__(**kwargs)
+        self.n_heads = n_heads
         self.key_dim = key_dim
         self.n_patches = n_patches
         self.patch_length = patch_length
         self.unpatched_length = unpatched_length
         self.transform_attention = transform_attention
+
+        # Create a position embedding layer
+        if transform_attention == "rope":
+            self.rotary_position_embedding_layer = RotaryPositionEmbeddingLayer(
+                embedding_dim=self.key_dim,
+                max_sequence_length=tf.cast(
+                    tf.math.maximum(self.latent_sequence_length, self.n_patches + self.unpatched_length),
+                    dtype=tf.int32,
+                ),
+            )
+        if transform_attention == "alibi":
+            self.alibi_position_embedding_layer = ALiBiPositionEmbeddingLayer(
+                n_heads=self.n_heads,
+                n_patches=self.n_patches,
+                patch_length=self.patch_length,
+                unpatched_length=self.unpatched_length,
+            )
 
     def call(self, inputs, mask=None, **kwargs):
         # q (Query): (batch_size, n_heads, out_sequence_length, n_channels, key_dim)
@@ -481,18 +513,9 @@ class TimeAttentionLayer(tf.keras.layers.Layer):
         # v: (batch_size, n_heads, n_channels, in_sequence_length, key_dim)
 
         if self.transform_attention == "rope":
-            # Create a rotary position embedding layer
-            rotary_position_embedding_layer = RotaryPositionEmbeddingLayer(
-                embedding_dim=self.key_dim,
-                max_sequence_length=tf.cast(
-                    tf.math.maximum(tf.shape(q)[3], tf.shape(k)[3]),
-                    dtype=tf.int32,
-                ),
-            )
-
             # Apply rotary position embedding to the query and key vectors
-            q = rotary_position_embedding_layer(q)
-            k = rotary_position_embedding_layer(k)
+            q = self.rotary_position_embedding_layer(q)
+            k = self.rotary_position_embedding_layer(k)
 
         # Compute attention
         attention = tf.matmul(q, k, transpose_b=True) / tf.math.sqrt(
@@ -501,16 +524,8 @@ class TimeAttentionLayer(tf.keras.layers.Layer):
         # attention: (batch_size, n_heads, n_channels, out_sequence_length, in_sequence_length)
 
         if self.transform_attention == "alibi":
-            # Create an ALiBi position embedding layer
-            alibi_position_embedding_layer = ALiBiPositionEmbeddingLayer(
-                n_heads=tf.shape(q)[1],
-                n_patches=self.n_patches,
-                patch_length=self.patch_length,
-                unpatched_length=self.unpatched_length,
-            )
-
             # Apply ALiBi position embedding to the attention matrix
-            attention = alibi_position_embedding_layer(attention, mask=mask)
+            attention = self.alibi_position_embedding_layer(attention, mask=mask)
 
         # Apply mask
         if mask is not None:
@@ -583,6 +598,8 @@ class PASSTALayer(tf.keras.layers.Layer):
 
     Parameters
     ----------
+    n_heads : int
+        Number of heads.
     n_channels : int
         Number of channels.
     latent_sequence_length : int
@@ -609,6 +626,7 @@ class PASSTALayer(tf.keras.layers.Layer):
 
     def __init__(
         self,
+        n_heads: int,
         n_channels: int,
         latent_sequence_length: int,
         n_patches: int,
@@ -621,6 +639,7 @@ class PASSTALayer(tf.keras.layers.Layer):
         **kwargs,
     ):
         super().__init__(**kwargs)
+        self.n_heads = n_heads
         self.n_channels = n_channels
         self.latent_sequence_length = latent_sequence_length
         self.key_dim = key_dim
@@ -633,7 +652,13 @@ class PASSTALayer(tf.keras.layers.Layer):
 
         # Time attention layer
         self.time_attention_layer = TimeAttentionLayer(
-            key_dim, n_patches, patch_length, unpatched_length, pos_embedding_type
+            n_heads,
+            latent_sequence_length,
+            key_dim,
+            n_patches,
+            patch_length,
+            unpatched_length,
+            pos_embedding_type,
         )
         # Mask for time attention (This is fixed).
         self.time_attention_mask = self._compute_time_attention_mask()
@@ -830,6 +855,7 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
 
         # PASSTA layer for time and channel attention
         self.passta_layer = PASSTALayer(
+            n_heads,
             n_channels,
             latent_sequence_length,
             n_patches,
