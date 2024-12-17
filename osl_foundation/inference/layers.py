@@ -276,42 +276,21 @@ class ALiBiPositionEmbeddingLayer(tf.keras.layers.Layer):
         # Get a binary masking matrix
         mask = 1 - mask
         cum_mask = tf.cumsum(mask, axis=0)  # cumulative sum of the mask
+        # NOTE: In the mask matrix, columns are where you attend to and rows are the targets.
 
-        # Compute a distance matrix
-        latent_sequence_length = tf.shape(mask)[0]
-        distance = tf.zeros(tf.shape(mask), dtype=tf.float32) 
-        # NOTE: In the mask matrix, columns are the targets and rows are where you attend to.
-
-        for i in range(self.n_patches):  # patch masking
-            avg_idx = ((self.patch_length * i + 1) + self.patch_length * (i + 1)) / 2
-            updates = tf.cast(
-                -(cum_mask[:, i] + self.patch_length * (i + 1)) + avg_idx,
-                dtype=tf.float32,
-            )
-            full_indices = tf.stack([
-                tf.range(latent_sequence_length),  # row indices
-                tf.fill([latent_sequence_length], i),  # column index i repeated
-            ], axis=1)
-            distance = tf.tensor_scatter_nd_update(
-                distance,
-                indices=full_indices,
-                updates=updates,
-            )
+        # Compute the relative distance matrix for the patches
+        patch_indices = tf.cast(tf.range(self.n_patches), dtype=tf.float32)
+        avg_idx = ((self.patch_length * patch_indices + 1) + self.patch_length * (patch_indices + 1))  / 2.0
+        distance_patched = -(cum_mask[:, :self.n_patches] + self.patch_length * (patch_indices + 1)) + avg_idx
         # NOTE: Considering a patch as a single receptive field, we calculate relative distance between the patch 
         # and the current sequence index (i.e., the distance between the center of the patch and the current index).
         # This amounts to the average distance between the current index and all the indices in the patch.
 
-        for i in range(self.n_patches, self.n_patches + self.unpatched_length):  # unpatched masking
-            updates = tf.cast(-cum_mask[:, i], dtype=tf.float32)
-            full_indices = tf.stack([
-                tf.range(latent_sequence_length),  # row indices
-                tf.fill([latent_sequence_length], i),  # column index i repeated
-            ], axis=1)
-            distance = tf.tensor_scatter_nd_update(
-                distance,
-                indices=full_indices,
-                updates=updates,
-            )
+        # Compute the relative distance matrix for the unpatched elements
+        distance_unpatched = -cum_mask[:, self.n_patches:self.n_patches + self.unpatched_length]
+
+        # Concatenate two matrices
+        distance = tf.concat([distance_patched, distance_unpatched], axis=1)
         # distance.shape = (latent_sequence_length, n_patches + unpatched_length)
 
         # Compute head-specific relative bias matrices
