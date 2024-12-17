@@ -83,6 +83,10 @@ class EphysGPTModelConfig(BaseModelConfig):
         else:
             assert self.n_tokens > 0, "n_tokens must be greater than 0"
         assert self.n_channels is not None, "n_channels must be set"
+        VALID_POS_EMBEDDING_TYPES = ["absolute", "sinusoidal", "rope", "alibi"]
+        assert self.pos_embedding_type in VALID_POS_EMBEDDING_TYPES, (
+            f"pos_embedding_type must be one of {VALID_POS_EMBEDDING_TYPES}"
+        )
         self.extra_labels = self.extra_labels or []
 
     def _validate_decoder_parameters(self) -> None:
