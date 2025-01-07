@@ -805,9 +805,10 @@ class EphysGPT(BaseModel):
         embeddings["token"] = (
             input_embedding_layer.token_embedding_layer.embeddings.numpy()
         )
-        embeddings["position"] = (
-            input_embedding_layer.position_embedding_layer.position_embeddings.numpy()
-        )
+        if self.config.model_config.pos_embedding_type == "absolute":
+            embeddings["position"] = (
+                input_embedding_layer.position_embedding_layer.position_embeddings.numpy()
+            )
         embeddings["channel"] = (
             input_embedding_layer.channel_embedding_layer.position_embeddings.numpy()
         )
