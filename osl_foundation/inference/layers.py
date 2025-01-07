@@ -120,10 +120,11 @@ class SinusoidalPositionalEncodingLayer(tf.keras.layers.Layer):
         )  # positions.shape = (1, 1, sequence_length, embedding_dim)
         return positions
 
+
 class RotaryPositionEmbeddingLayer(tf.keras.layers.Layer):
     """
-    Layer for generating Rotary Position Embedding (RoPE). Implemented as in 
-    "RoFormer: Enhanced Transformer with Rotary Position Embedding" (Su et al., 2022), and 
+    Layer for generating Rotary Position Embedding (RoPE). Implemented as in
+    "RoFormer: Enhanced Transformer with Rotary Position Embedding" (Su et al., 2022), and
     adpated from the PyTorch and Keras 3 libraries (see below for the reference).
 
     References:
@@ -136,18 +137,22 @@ class RotaryPositionEmbeddingLayer(tf.keras.layers.Layer):
         Dimension of the rotary position embedding. When using multi-head attention blocks,
         the dimension is usually `embedding_dim // n_heads`.
     max_sequence_length : int
-        Maximum expected length of the sequence. If the model dimensions of the key and 
+        Maximum expected length of the sequence. If the model dimensions of the key and
         query vectors differ, the sequence length should be the maximum of the two.
     base : int, optional
         The base value for computing the rotation angles.
     """
 
-    def __init__(self, embedding_dim: int, max_sequence_length: int, base: int = 10000, **kwargs):
+    def __init__(
+        self, embedding_dim: int, max_sequence_length: int, base: int = 10000, **kwargs
+    ):
         super().__init__(**kwargs)
 
         # Validation
         if embedding_dim % 2 != 0:
-            raise ValueError("embedding dimension must be even for positional encoding.")
+            raise ValueError(
+                "embedding dimension must be even for positional encoding."
+            )
 
         self.embedding_dim = embedding_dim
         self.max_sequence_length = max_sequence_length
@@ -157,23 +162,29 @@ class RotaryPositionEmbeddingLayer(tf.keras.layers.Layer):
     def _compute_rotation_matrix(self) -> tf.Tensor:
         # Compute pre-defined theta angles
         theta = 1.0 / (
-            self.base ** (tf.range(0, self.embedding_dim, 2, dtype=tf.float32)[:(self.embedding_dim // 2)] / self.embedding_dim)
+            self.base
+            ** (
+                tf.range(0, self.embedding_dim, 2, dtype=tf.float32)[
+                    : (self.embedding_dim // 2)
+                ]
+                / self.embedding_dim
+            )
         )
-        
+
         # Create position indices
         seq_idx = tf.range(self.max_sequence_length, dtype=tf.float32)
         # NOTE: Having 0 as a starting index is okay, since we don't have to rotate the first position.
-        
+
         # Compute outer product of position index and theta
         idx_theta = tf.einsum("i,j->ij", seq_idx, theta)
         # idx_theta.shape = (sequence_length, embedding_dim // 2)
-        
+
         # Compute elements of the rotation matrix
         rotation_values = tf.stack([tf.cos(idx_theta), tf.sin(idx_theta)], axis=-1)
         # rotation_values.shape = (sequence_length, embedding_dim // 2, 2)
 
         return rotation_values
-    
+
     def call(self, inputs, **kwargs):
         # Get input sequence length
         sequence_length = tf.shape(inputs)[3]
@@ -193,34 +204,39 @@ class RotaryPositionEmbeddingLayer(tf.keras.layers.Layer):
 
         # Reshape the rotation values to be compabitle with the input shape
         rot_vals = tf.reshape(
-            self.rotation_values[:sequence_length],  
+            self.rotation_values[:sequence_length],
             (1, 1, 1, sequence_length, self.embedding_dim // 2, 2),
         )
-        # NOTE: We clip the rotation values to the sequence length, in case sequence_length is 
+        # NOTE: We clip the rotation values to the sequence length, in case sequence_length is
         # less than max_sequence_length as the dimension for key and query differs.
 
         # Match the input shape to the rope shape
-        rot_shape = tf.concat([tf.shape(inputs)[:-1], [self.embedding_dim // 2, 2]], axis=0)
+        rot_shape = tf.concat(
+            [tf.shape(inputs)[:-1], [self.embedding_dim // 2, 2]], axis=0
+        )
         x_reshaped = tf.reshape(inputs, rot_shape)
         # x_reshaped.shape = (batch_size, n_heads, n_channels, sequence_length, key_dim // 2, 2)
 
         # Calculate the rotary position embedding
-        rope = tf.stack([
-            rot_vals[..., 0] * x_reshaped[..., 0]
-            - rot_vals[..., 1] * x_reshaped[..., 1],
-            rot_vals[..., 1] * x_reshaped[..., 0]
-            + rot_vals[..., 0] * x_reshaped[..., 1],
-        ], axis=-1)
+        rope = tf.stack(
+            [
+                rot_vals[..., 0] * x_reshaped[..., 0]
+                - rot_vals[..., 1] * x_reshaped[..., 1],
+                rot_vals[..., 1] * x_reshaped[..., 0]
+                + rot_vals[..., 0] * x_reshaped[..., 1],
+            ],
+            axis=-1,
+        )
         # rope.shape = (batch_size, n_heads, n_channels, sequence_length, key_dim // 2, 2)
         rope = tf.reshape(rope, tf.shape(inputs))
         # rope.shape = (batch_size, n_heads, n_channels, sequence_length, key_dim)
-        
+
         return rope
 
 
 class ALiBiPositionEmbeddingLayer(tf.keras.layers.Layer):
     """
-    Layer for generating Attention with Linear Biases (ALiBi) position embedding. Implemented 
+    Layer for generating Attention with Linear Biases (ALiBi) position embedding. Implemented
     based on "Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation"
     (Press et al., 2022) and adapted from the references below.
 
@@ -259,14 +275,16 @@ class ALiBiPositionEmbeddingLayer(tf.keras.layers.Layer):
         h = tf.cast(self.n_heads, tf.float32)
         n = 2 ** tf.math.floor(tf.math.log(h) / tf.math.log(2.0))  # nearest power of 2
         ratio = tf.pow(2.0, -8.0 / n)
-        m = tf.pow(ratio, tf.range(1, tf.cast(n, tf.int32) + 1, dtype=tf.float32))  # head-specific slopes
+        m = tf.pow(
+            ratio, tf.range(1, tf.cast(n, tf.int32) + 1, dtype=tf.float32)
+        )  # head-specific slopes
 
         # When n_heads is not a power of 2, then we add additional slopes
         if n < h:
             ratio_hat = tf.pow(2.0, -4.0 / n)
             m_hat = tf.pow(ratio_hat, tf.range(1, 1 + 2 * (h - n), 2, dtype=tf.float32))
             m = tf.concat([m, m_hat], axis=0)
-        
+
         return m
 
     def _get_relative_bias_matrix(self, mask: tf.Tensor) -> tf.Tensor:
@@ -280,14 +298,22 @@ class ALiBiPositionEmbeddingLayer(tf.keras.layers.Layer):
 
         # Compute the relative distance matrix for the patches
         patch_indices = tf.cast(tf.range(self.n_patches), dtype=tf.float32)
-        avg_idx = ((self.patch_length * patch_indices + 1) + self.patch_length * (patch_indices + 1))  / 2.0
-        distance_patched = -(cum_mask[:, :self.n_patches] + self.patch_length * (patch_indices + 1)) + avg_idx
-        # NOTE: Considering a patch as a single receptive field, we calculate relative distance between the patch 
+        avg_idx = (
+            (self.patch_length * patch_indices + 1)
+            + self.patch_length * (patch_indices + 1)
+        ) / 2.0
+        distance_patched = (
+            -(cum_mask[:, : self.n_patches] + self.patch_length * (patch_indices + 1))
+            + avg_idx
+        )
+        # NOTE: Considering a patch as a single receptive field, we calculate relative distance between the patch
         # and the current sequence index (i.e., the distance between the center of the patch and the current index).
         # This amounts to the average distance between the current index and all the indices in the patch.
 
         # Compute the relative distance matrix for the unpatched elements
-        distance_unpatched = -cum_mask[:, self.n_patches:self.n_patches + self.unpatched_length]
+        distance_unpatched = -cum_mask[
+            :, self.n_patches : self.n_patches + self.unpatched_length
+        ]
 
         # Concatenate two matrices
         distance = tf.concat([distance_patched, distance_unpatched], axis=1)
@@ -306,7 +332,9 @@ class ALiBiPositionEmbeddingLayer(tf.keras.layers.Layer):
         # alibi_matrix.shape = (n_heads, latent_sequence_length, n_patches + unpatched_length)
 
         # Reshape the relative bias matrix to match the attention matrix
-        alibi_matrix = tf.reshape(alibi_matrix, (1, self.n_heads, 1, tf.shape(mask)[0], tf.shape(mask)[1]))
+        alibi_matrix = tf.reshape(
+            alibi_matrix, (1, self.n_heads, 1, tf.shape(mask)[0], tf.shape(mask)[1])
+        )
 
         # Add the relative bias matrix to the attention matrix
         attention_with_alibi = inputs + alibi_matrix
@@ -462,16 +490,17 @@ class TimeAttentionLayer(tf.keras.layers.Layer):
     def __init__(
         self,
         n_heads: int,
-        latent_sequence_length : int,
+        latent_sequence_length: int,
         key_dim: int,
         n_patches: int,
         patch_length: int,
         unpatched_length: int,
         transform_attention: str = None,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self.n_heads = n_heads
+        self.latent_sequence_length = latent_sequence_length
         self.key_dim = key_dim
         self.n_patches = n_patches
         self.patch_length = patch_length
@@ -483,7 +512,10 @@ class TimeAttentionLayer(tf.keras.layers.Layer):
             self.rotary_position_embedding_layer = RotaryPositionEmbeddingLayer(
                 embedding_dim=self.key_dim,
                 max_sequence_length=tf.cast(
-                    tf.math.maximum(self.latent_sequence_length, self.n_patches + self.unpatched_length),
+                    tf.math.maximum(
+                        self.latent_sequence_length,
+                        self.n_patches + self.unpatched_length,
+                    ),
                     dtype=tf.int32,
                 ),
             )
@@ -633,7 +665,7 @@ class PASSTALayer(tf.keras.layers.Layer):
         patch_length: int,
         unpatched_length: int,
         key_dim: int,
-        pos_embedding_type : str,
+        pos_embedding_type: str,
         channel_attention_dropout: float,
         within_channel_attention_dropout: float,
         **kwargs,
