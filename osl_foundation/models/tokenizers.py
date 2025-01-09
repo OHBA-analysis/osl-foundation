@@ -755,10 +755,10 @@ class OSLTokenizer(BaseModel):
             true_data = _load_and_normalize_data(ground_truth_path, "tmp_true_data")
 
         # Get data reconstructed from tokens
-        data = Data(data_path, store_dir="tmp_reconstruct")
-        tokenized_data, token_weights = self._tokenize_data(data, return_weights=True)
+        tokenized_data, token_weights = self._tokenize_data(
+            original_data, return_weights=True
+        )
         fitted_data = self._reconstruct_data(tokenized_data)
-        data.delete_dir()
 
         # Plot data signals and token weights
         n_channels = min(original_data.shape[1], 3)  # number of channels to plot
