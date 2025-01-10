@@ -15,8 +15,6 @@ else:
         f"Unsupported TensorFlow version: {tf.__version__}. Please use <= 2.15."
     )
 
-from tensorflow.python.distribute.mirrored_strategy import MirroredStrategy
-
 from osl_dynamics.config_api.pipeline import load_config
 
 from osl_foundation.inference.callbacks import (
@@ -207,10 +205,10 @@ def get_training_config(config: dict) -> BaseTrainingConfig:
     training_config.set_callbacks(callbacks)
 
     # Set strategy
-    if config.get("multi_gpu", None) is None:
+    if not config.get("multi_gpu", False):
         training_config.set_strategy(get_strategy())
     else:
-        training_config.set_strategy(MirroredStrategy())
+        training_config.set_strategy(tf.distribute.MirroredStrategy())
 
     return training_config
 
