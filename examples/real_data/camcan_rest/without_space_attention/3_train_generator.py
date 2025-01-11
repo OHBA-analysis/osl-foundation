@@ -23,6 +23,7 @@ checkpoint = tf.train.Checkpoint(
 # Load previous model if exists
 checkpoint_path = tf.train.latest_checkpoint(checkpoint_dir)
 if checkpoint_path:
+    print(f"Restoring from {checkpoint_path}")
     checkpoint.restore(checkpoint_path).expect_partial()
 
 # Load data

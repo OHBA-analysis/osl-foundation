@@ -27,7 +27,8 @@ model_config:
   sequence_length: 80
   tokenizer_path: models/tokenizer
 training_config:
-  batch_size: 4
+  batch_size: 8
   n_epochs: 1
   optimizer:
     learning_rate: 1.0e-05
+  multi_gpu: True

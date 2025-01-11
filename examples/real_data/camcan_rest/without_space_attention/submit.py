@@ -9,12 +9,12 @@ def write_job_script(after: str = None, run: int = 0):
         file.write("#!/bin/bash\n")
         file.write(f"#SBATCH -J {name}\n")
         file.write(f"#SBATCH -o outputs/{name}.out\n")
-        file.write("#SBATCH -p gpu_long\n")
-        file.write(f"#SBATCH --gres gpu:1\n")
+        file.write("#SBATCH -p gpu_short\n")
+        file.write(f"#SBATCH --gres gpu:2\n")
         file.write("#SBATCH --parsable\n")
-        file.write("source activate osld\n")
         if after:
             file.write(f"#SBATCH -d afterok:{after}\n")
+        file.write("source activate osld\n")
         file.write(f"python 3_train_generator.py\n")
 
 
@@ -23,4 +23,5 @@ job_id = None
 for i in range(30):
     write_job_script(after=job_id, run=i)
     job_id = str(int(os.popen("sbatch job.sh").read()))
+    print(f"Submitted job {job_id}")
     os.system("rm job.sh")
