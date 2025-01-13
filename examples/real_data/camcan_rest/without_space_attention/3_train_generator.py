@@ -24,7 +24,8 @@ checkpoint = tf.train.Checkpoint(
 checkpoint_path = tf.train.latest_checkpoint(checkpoint_dir)
 if checkpoint_path:
     print(f"Restoring from {checkpoint_path}")
-    checkpoint.restore(checkpoint_path).expect_partial()
+    with generator.config.training_config.strategy.scope():
+        checkpoint.restore(checkpoint_path).expect_partial()
 
 # Load data
 train_data, val_data = load_tfrecord_dataset(
