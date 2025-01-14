@@ -34,7 +34,9 @@ def create_model(config: Union[Config, str]):
         raise ValueError(f"Model {config.model_config.name} not implemented.")
 
 
-def load_model(model_dir: str, from_checkpoint: bool = False):
+def load_model(
+    model_dir: str, from_checkpoint: bool = False, checkpoint_path: str = None
+):
     """Load a saved model from a directory.
 
     Parameters
@@ -43,6 +45,9 @@ def load_model(model_dir: str, from_checkpoint: bool = False):
         Directory containing the saved model.
     from_checkpoint : bool, optional
         Whether to load the model from a checkpoint.
+    checkpoint_path : str, optional
+        Path to a specific checkpoint to load. If not provided, the latest
+        checkpoint in `model_dir/checkpoints` will be loaded.
 
     Returns
     -------
@@ -55,9 +60,11 @@ def load_model(model_dir: str, from_checkpoint: bool = False):
         checkpoint = tf.train.Checkpoint(
             model=model.model, optimizer=model.model.optimizer
         )
-        checkpoint.restore(
-            tf.train.latest_checkpoint(f"{model_dir}/checkpoints")
-        ).expect_partial()
+        checkpoint_path = checkpoint_path or tf.train.latest_checkpoint(
+            f"{model_dir}/checkpoints"
+        )
+        with model.config.training_config.strategy.scope():
+            checkpoint.restore(checkpoint_path).expect_partial()
     else:
         model.load_weights(f"{model_dir}/weights.h5")
 
