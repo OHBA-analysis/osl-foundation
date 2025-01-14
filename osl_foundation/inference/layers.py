@@ -528,21 +528,18 @@ class TimeAttentionLayer(tf.keras.layers.Layer):
             )
 
     def call(self, inputs, mask=None, **kwargs):
-        # q (Query): (batch_size, n_heads, out_sequence_length, n_channels, key_dim)
-        # k (Key): (batch_size, n_heads, in_sequence_length, n_channels, key_dim)
-        # v (Value): (batch_size, n_heads, in_sequence_length, n_channels, key_dim)
+        # q (Query): (batch_size, n_heads, out_sequence_length, out_n_channels, key_dim)
+        # k (Key): (batch_size, n_heads, in_sequence_length, out_n_channels, key_dim)
+        # v (Value): (batch_size, n_heads, out_sequence_length, out_n_channels, in_sequence_length, key_dim)
         q, k, v = inputs
 
         # Transpose inputs for time attention
 
         q = tf.transpose(q, perm=(0, 1, 3, 2, 4))
-        # q: (batch_size, n_heads, n_channels, out_sequence_length, key_dim)
+        # q: (batch_size, n_heads, out_n_channels, out_sequence_length, key_dim)
 
         k = tf.transpose(k, perm=(0, 1, 3, 2, 4))
-        # k: (batch_size, n_heads, n_channels, in_sequence_length, key_dim)
-
-        v = tf.transpose(v, perm=(0, 1, 3, 2, 4))
-        # v: (batch_size, n_heads, n_channels, in_sequence_length, key_dim)
+        # k: (batch_size, n_heads, out_n_channels, in_sequence_length, key_dim)
 
         if self.transform_attention == "rope":
             # Apply rotary position embedding to the query and key vectors
@@ -553,7 +550,7 @@ class TimeAttentionLayer(tf.keras.layers.Layer):
         attention = tf.matmul(q, k, transpose_b=True) / tf.math.sqrt(
             tf.cast(self.key_dim, tf.float32)
         )
-        # attention: (batch_size, n_heads, n_channels, out_sequence_length, in_sequence_length)
+        # attention: (batch_size, n_heads, out_n_channels, out_sequence_length, in_sequence_length)
 
         if self.transform_attention == "alibi":
             # Apply ALiBi position embedding to the attention matrix
@@ -570,12 +567,16 @@ class TimeAttentionLayer(tf.keras.layers.Layer):
             attention = attention * (1 - mask)
 
         # Apply attention to value
-        output = tf.matmul(attention, v)
-        # output: (batch_size, n_heads, n_channels, out_sequence_length, key_dim)
+        attention = tf.expand_dims(
+            tf.transpose(attention, perm=(0, 1, 3, 2, 4)), axis=-2
+        )
+        # attention: (batch_size, n_heads, out_sequence_length, out_n_channels, 1, in_sequence_length)
 
-        # Transpose output back to original shape
-        output = tf.transpose(output, perm=(0, 1, 3, 2, 4))
-        # output: (batch_size, n_heads, out_sequence_length, n_channels, key_dim)
+        output = tf.matmul(attention, v)
+        # output: (batch_size, n_heads, out_sequence_length, out_n_channels, 1, key_dim)
+
+        output = tf.squeeze(output, axis=-2)
+        # output: (batch_size, n_heads, out_sequence_length, out_n_channels, key_dim)
 
         return output
 
@@ -595,16 +596,23 @@ class ChannelAttention(tf.keras.layers.Layer):
         self.key_dim = key_dim
 
     def call(self, inputs, mask=None, **kwargs):
-        # q (Query): (batch_size, n_heads, sequence_length, n_channels, key_dim)
-        # k (Key): (batch_size, n_heads, sequence_length, n_channels, key_dim)
-        # v (Value): (batch_size, n_heads, sequence_length, n_channels, key_dim)
+        # q (Query): (batch_size, n_heads, out_sequence_length, out_n_channels, key_dim)
+        # k (Key): (batch_size, n_heads, out_sequence_length, in_n_channels, key_dim)
+        # v (Value): (batch_size, n_heads, in_sequence_length, in_n_channels, key_dim)
         q, k, v = inputs
+
+        batch_size = tf.shape(q)[0]
+        n_heads = tf.shape(q)[1]
+        out_sequence_length = tf.shape(q)[2]
+        out_n_channels = tf.shape(q)[3]
+        in_n_channels = tf.shape(k)[3]
+        in_sequence_length = tf.shape(v)[2]
 
         # Compute attention
         attention = tf.matmul(q, k, transpose_b=True) / tf.math.sqrt(
             tf.cast(self.key_dim, tf.float32)
         )
-        # attention: (batch_size, n_heads, sequence_length, n_channels, n_channels)
+        # attention: (batch_size, n_heads, out_sequence_length, out_n_channels, in_n_channels)
 
         # Apply mask
         if mask is not None:
@@ -617,8 +625,27 @@ class ChannelAttention(tf.keras.layers.Layer):
             attention = attention * (1 - mask)
 
         # Apply attention to value
+        v = tf.transpose(v, perm=(0, 1, 3, 2, 4))
+        # v: (batch_size, n_heads, in_n_channels, in_sequence_length, key_dim)
+
+        v = tf.reshape(v, shape=(batch_size, n_heads, 1, in_n_channels, -1))
+        # v: (batch_size, n_heads, 1, in_n_channels, in_sequence_length * key_dim)
+
         output = tf.matmul(attention, v)
-        # output: (batch_size, n_heads, sequence_length, n_channels, key_dim)
+        # output: (batch_size, n_heads, out_sequence_length, out_n_channels, in_sequence_length * key_dim)
+
+        output = tf.reshape(
+            output,
+            shape=(
+                batch_size,
+                n_heads,
+                out_sequence_length,
+                out_n_channels,
+                in_sequence_length,
+                self.key_dim,
+            ),
+        )
+        # output: (batch_size, n_heads, out_sequence_length, out_n_channels, in_sequence_length, key_dim)
 
         return output
 
@@ -784,17 +811,12 @@ class PASSTALayer(tf.keras.layers.Layer):
     def call(self, inputs, training=None, **kwargs):
         # ---------- Unpack Inputs ---------- #
 
-        # q (Query): (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
-        # k (Key): (batch_size, n_heads, n_patches + unpatched_length, n_channels, key_dim)
-        # v (Value): (batch_size, n_heads, n_patches + unpatched_length, n_channels, key_dim)
-        # c_q (Channel Query): (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
-        # c_k (Channel Key): (batch_size, n_heads, latent_sequence_length, n_channels, key_dim)
+        # q (Query): (batch_size, n_heads, latent_sequence_length, out_n_channels, key_dim)
+        # k (Key): (batch_size, n_heads, n_patches + unpatched_length, out_n_channels, key_dim)
+        # v (Value): (batch_size, n_heads, n_patches + unpatched_length, in_n_channels, key_dim)
+        # c_q (Channel Query): (batch_size, n_heads, latent_sequence_length, out_n_channels, key_dim)
+        # c_k (Channel Key): (batch_size, n_heads, latent_sequence_length, in_n_channels, key_dim)
         q, k, v, c_q, c_k = inputs
-
-        # ---------- Time Attention ---------- #
-        output = self.time_attention_layer(
-            [q, k, v], mask=self.time_attention_mask, training=training, **kwargs
-        )
 
         # ---------- Channel Attention ---------- #
 
@@ -803,7 +825,12 @@ class PASSTALayer(tf.keras.layers.Layer):
 
         # Apply channel attention
         output = self.channel_attention_layer(
-            [c_q, c_k, output], mask=channel_attention_mask, training=training, **kwargs
+            [c_q, c_k, v], mask=channel_attention_mask, training=training, **kwargs
+        )
+
+        # ---------- Time Attention ---------- #
+        output = self.time_attention_layer(
+            [q, k, output], mask=self.time_attention_mask, training=training, **kwargs
         )
 
         return output
