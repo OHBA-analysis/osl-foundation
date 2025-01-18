@@ -77,8 +77,7 @@ generator.summary()
 generator.fit(data, validation_split=0.1, use_tfrecord=True)
 
 # ---------- Plot training curves ---------- #
-generator.plot_history(plot_dir=plot_dir, keyword="loss")
-generator.plot_history(plot_dir=plot_dir, keyword="top")
+generator.plot_history(plot_dir=plot_dir)
 
 # Clean up directories
 data.delete_dir()

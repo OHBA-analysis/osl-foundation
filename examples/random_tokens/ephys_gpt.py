@@ -44,5 +44,4 @@ generator = create_model(generator_config)
 generator.summary()
 
 generator.fit_random_tokens(n_samples=256000, validation_split=0.1)
-generator.plot_history(plot_dir=plot_dir, keyword="loss")
-generator.plot_history(plot_dir=plot_dir, keyword="top")
+generator.plot_history(plot_dir=plot_dir)
