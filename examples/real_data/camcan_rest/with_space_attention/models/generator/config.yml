@@ -1,6 +1,6 @@
 model_config:
   decoder_parameters:
-    channel_attention_dropout: 1.0
+    channel_attention_dropout: 0.5
     dropout: 0.2
     feed_forward_dim: 400
     latent_sequence_length: 40
@@ -10,7 +10,7 @@ model_config:
     n_patches: 20
     patch_length: 4
     unpatched_length: 16
-    within_channel_attention_dropout: 0.0
+    within_channel_attention_dropout: 0.5
   input_parameters:
     channel_embedding_dim: 400
     embedding_dim: 400

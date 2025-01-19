@@ -10,7 +10,7 @@ from osl_foundation import create_model
 
 tf_ops.gpu_growth()
 
-data_dir = "tokenized_data_tfrecords"
+data_dir = "../tokenized_data_tfrecords"
 generator_dir = "models/generator"
 checkpoint_dir = f"{generator_dir}/checkpoint"
 os.makedirs(checkpoint_dir, exist_ok=True)
