@@ -43,8 +43,8 @@ generator_config = f"""
             n_patches: 20
             patch_length: 4
             unpatched_length: 12
-            channel_attention_dropout: 0.0
-            within_channel_attention_dropout: 0.0
+            channel_attention_dropout: 0.5
+            within_channel_attention_dropout: 0.5
             feed_forward_dim: 100
             dropout: 0.2
         loss_parameters:

@@ -846,8 +846,6 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         Number of heads.
     model_dim : int
         Model dimension.
-    embedding_dim : int
-        Token dimension.
     n_channels : int
         Number of channels.
     sequence_length : int
@@ -876,7 +874,6 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         self,
         n_heads: int,
         model_dim: int,
-        embedding_dim: int,
         n_channels: int,
         sequence_length: int,
         latent_sequence_length: int,
@@ -891,7 +888,6 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         super().__init__(**kwargs)
         self.n_heads = n_heads
         self.model_dim = model_dim
-        self.embedding_dim = embedding_dim
         self.key_dim = model_dim // n_heads
         self.n_channels = n_channels
         self.sequence_length = sequence_length
@@ -930,51 +926,51 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         self.output_projection = tf.keras.layers.Dense(self.model_dim)
 
     def _patch_x(self, x: tf.Tensor) -> tf.Tensor:
-        # x.shape: (batch_size, sequence_length, n_channels, embedding_dim)
+        # x.shape: (batch_size, sequence_length, n_channels, model_dim)
 
         x = tf.transpose(x, perm=(0, 2, 3, 1))
-        # x.shape: (batch_size, n_channels, embedding_dim, sequence_length)
+        # x.shape: (batch_size, n_channels, model_dim, sequence_length)
 
         x = tf.reshape(
             x,
             (
                 tf.shape(x)[0],
                 self.n_channels,
-                self.embedding_dim,
+                self.model_dim,
                 self.n_patches,
                 self.patch_length,
             ),
         )
-        # x.shape: (batch_size, n_channels, embedding_dim, n_patches, patch_length)
+        # x.shape: (batch_size, n_channels, model_dim, n_patches, patch_length)
 
         x = tf.transpose(x, perm=(0, 3, 1, 2, 4))
-        # x.shape: (batch_size, n_patches, n_channels, embedding_dim, patch_length)
+        # x.shape: (batch_size, n_patches, n_channels, model_dim, patch_length)
 
         return x
 
     def _perceiver_x(self, x: tf.Tensor) -> tf.Tensor:
         """Get the last latent_sequence_length elements of the sequence."""
-        # x.shape: (batch_size, sequence_length, n_channels, embedding_dim)
+        # x.shape: (batch_size, sequence_length, n_channels, model_dim)
 
         x = tf.slice(
             x,
             [0, self.sequence_length - self.latent_sequence_length, 0, 0],
             [-1, -1, -1, -1],
         )
-        # x.shape: (batch_size, latent_sequence_length, n_channels, embedding_dim)
+        # x.shape: (batch_size, latent_sequence_length, n_channels, model_dim)
 
         return x
 
     def _unpatch_x(self, x: tf.Tensor) -> tf.Tensor:
         """Get the last unpatched_length elements of the sequence."""
-        # x.shape: (batch_size, sequence_length, n_channels, embedding_dim)
+        # x.shape: (batch_size, sequence_length, n_channels, model_dim)
 
         x = tf.slice(
             x,
             [0, self.sequence_length - self.unpatched_length, 0, 0],
             [-1, -1, -1, -1],
         )
-        # x.shape: (batch_size, unpatched_length, n_channels, embedding_dim)
+        # x.shape: (batch_size, unpatched_length, n_channels, model_dim)
 
         return x
 
@@ -1020,7 +1016,7 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
 
     def call(self, inputs, training=None, **kwargs):
         x = inputs
-        # x.shape: (batch_size, sequence_length, n_channels, embedding_dim)
+        # x.shape: (batch_size, sequence_length, n_channels, model_dim)
 
         # ---------- Process inputs ---------- #
         # Input is processed into 3 parts:
@@ -1029,7 +1025,7 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         # 3. Perceiver input: perceiver_x
 
         patched_x = self._patch_x(x)
-        # patched_x.shape: (batch_size, n_patches, n_channels, embedding_dim, patch_length)
+        # patched_x.shape: (batch_size, n_patches, n_channels, model_dim, patch_length)
 
         patched_x = tf.reshape(
             patched_x,
@@ -1064,16 +1060,16 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
                 tf.shape(patched_x)[0],
                 self.n_patches,
                 self.n_channels,
-                self.embedding_dim,
+                self.model_dim,
             ),
         )
-        # patched_x.shape: (batch_size, n_patches, n_channels, embedding_dim)
+        # patched_x.shape: (batch_size, n_patches, n_channels, model_dim)
 
         perceiver_x = self._perceiver_x(x)
-        # perceiver_x.shape: (batch_size, latent_sequence_length, n_channels, embedding_dim)
+        # perceiver_x.shape: (batch_size, latent_sequence_length, n_channels, model_dim)
 
         unpatched_x = self._unpatch_x(x)
-        # unpatched_x.shape: (batch_size, unpatched_length, n_channels, embedding_dim)
+        # unpatched_x.shape: (batch_size, unpatched_length, n_channels, model_dim)
 
         # ---------- Project inputs to Q, K, V ---------- #
         q = self.time_query_projection(perceiver_x)
