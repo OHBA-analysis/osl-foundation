@@ -318,13 +318,17 @@ class DecoderLayer(tf.keras.layers.Layer):
 
         # Input dropout layer
         self.input_dropout_layer = tf.keras.layers.Dropout(dropout)
+        self.input_projection_layer = (
+            IdentityLayer()
+            if model_dim == embedding_dim
+            else tf.keras.layers.Dense(model_dim)
+        )
 
         # Multi-head attention layers (Special first layer)
         self.attention_layers = [
             MultiHeadPASSTALayer(
                 n_heads,
                 model_dim,
-                embedding_dim if i == 0 else model_dim,
                 n_channels,
                 sequence_length if i == 0 else latent_sequence_length,
                 latent_sequence_length,
@@ -370,6 +374,9 @@ class DecoderLayer(tf.keras.layers.Layer):
     def call(self, inputs, training=None, **kwargs):
         # inputs.shape = (batch_size, sequence_length, n_channels, embedding_dim)
         x = inputs
+        x = self.input_projection_layer(x)
+        # x.shape = (batch_size, sequence_length, n_channels, model_dim)
+
         x = self.input_dropout_layer(x, training=training, **kwargs)
 
         for i in range(self.n_layers):

@@ -43,8 +43,8 @@ generator_config = f"""
             n_patches: 20
             patch_length: 4
             unpatched_length: 12
-            channel_attention_dropout: 0.0
-            within_channel_attention_dropout: 0.0
+            channel_attention_dropout: 0.5
+            within_channel_attention_dropout: 0.5
             feed_forward_dim: 100
             dropout: 0.2
         loss_parameters:
@@ -70,8 +70,7 @@ generator.summary()
 generator.fit(data, validation_split=0.1, use_tfrecord=True)
 
 # ---------- Plot training curves ---------- #
-generator.plot_history(plot_dir=plot_dir, keyword="loss")
-generator.plot_history(plot_dir=plot_dir, keyword="top")
+generator.plot_history(plot_dir=plot_dir)
 
 # Clean up directories
 data.delete_dir()
