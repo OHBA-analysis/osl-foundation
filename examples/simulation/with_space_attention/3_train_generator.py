@@ -62,8 +62,7 @@ generator_config = f"""
             verbose: 1
 """
 
-generator = create_model(generator_config)
-generator.save_config(generator_dir)  # TODO: integrate this into create_model
+generator = create_model(generator_config, save_dir=generator_dir)
 generator.summary()
 
 # ---------- Fit generator ---------- #
