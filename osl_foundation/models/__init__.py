@@ -6,32 +6,38 @@ import tensorflow as tf
 from osl_foundation.config import Config, get_config
 
 
-def create_model(config: Union[Config, str]):
+def create_model(config: Union[Config, dict, str], save_dir: str = None):
     """Create a model based on the configuration.
 
     Parameters
     ----------
-    config : Union[Config, str]
-        String, path to a configuration file, or a Config object.
+    config : Union[Config, dict, str]
+        String, path to a configuration file, dictionary, or a Config object.
+    save_dir : str, optional
+        Path to a directory where the configuration will be saved.
+        Defaults to None, in which case the configuration will not be saved.
 
     Returns
     -------
     model
         Model object.
     """
-    if isinstance(config, str):
+    if not isinstance(config, Config):
         config = get_config(config)
 
+    if save_dir:
+        config.save_config(save_dir)
+
     if config.model_config.name == "osl_tokenizer":
-        from osl_foundation.models.tokenizers import OSLTokenizer
+        from osl_foundation.models.tokenizers import OSLTokenizer as Model
 
-        return OSLTokenizer(config)
     elif config.model_config.name == "ephys_gpt":
-        from osl_foundation.models.ephys_gpt import EphysGPT
+        from osl_foundation.models.ephys_gpt import EphysGPT as Model
 
-        return EphysGPT(config)
     else:
         raise ValueError(f"Model {config.model_config.name} not implemented.")
+
+    return Model(config)
 
 
 def load_model(
