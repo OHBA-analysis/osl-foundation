@@ -255,10 +255,18 @@ class BaseModel:
             Directory to save the model.
         """
 
+        # Save model config and history
         self.save_config(dirname)
-        self.model.save_weights(f"{dirname}/weights.h5")
         with open(f"{dirname}/history.pkl", "wb") as f:
             pickle.dump(self.history, f)
+
+        # Save model weights if the best model is not already saved
+        saved_best = any(
+            isinstance(cb, tf.keras.callbacks.ModelCheckpoint)
+            for cb in self.config.training_config.callbacks
+        )
+        if not saved_best:
+            self.model.save_weights(f"{dirname}/weights.h5")
 
     def plot_history(
         self, plot_dir: str = None, keywords: List[str] = None
