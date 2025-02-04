@@ -13,6 +13,7 @@ from osl_dynamics.inference import initializers as osld_initializers
 from osl_dynamics.utils.misc import get_argument, replace_argument
 
 from osl_foundation.config import Config
+from osl_foundation.utils import plotting
 
 _logger = logging.getLogger("osl-foundation")
 
@@ -268,18 +269,9 @@ class BaseModel:
         if not saved_best:
             self.model.save_weights(f"{dirname}/weights.h5")
 
-    def plot_history(
-        self, plot_dir: str = None, keywords: List[str] = None
-    ) -> Union[None, Tuple[plt.Figure, List[plt.Axes]]]:
-        """Plot the training history.
-
-        Parameters
-        ----------
-        plot_dir : str, optional
-            Directory to save the plot.
-        keyword : List[str], optional
-            List of keywords to filter the history. If None, all history
-            will be plotted.
+    def plot_history(self, **kwargs) -> Union[None, Tuple[plt.Figure, List[plt.Axes]]]:
+        """Plot the training history. This is a wrapper for the
+        :code:`plotting.plot_history()` function.
 
         Returns
         -------
@@ -288,29 +280,7 @@ class BaseModel:
         ax : List[plt.Axes]
             Axes object.
         """
-        fig, ax1 = plt.subplots()
-        ax1.set_xlabel("Epoch")
-        ax1.set_ylabel("Loss")
-        ax2 = ax1.twinx()
-        ax2.set_ylabel("Accuracy")
-        keywords = keywords or list(self.history.keys())
-        for key in self.history.keys():
-            if key not in keywords:
-                continue
-            if "loss" in key:
-                ax1.plot(self.history[key], "b" if "val" in key else "r", label=key)
-            elif "top" in key:
-                ax2.plot(self.history[key], "b--" if "val" in key else "r--", label=key)
-            else:
-                continue
-        ax1.legend(loc="upper left")
-        ax2.legend(loc="upper right")
-
-        if plot_dir is not None:
-            fig.savefig(f"{plot_dir}/history.png")
-            plt.close(fig)
-        else:
-            return fig, [ax1, ax2]
+        return plotting.plot_history(self.history, **kwargs)
 
     def summary(self, **kwargs) -> None:
         """Print a summary of the model."""

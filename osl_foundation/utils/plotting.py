@@ -263,3 +263,50 @@ def plot_time_frequency(
         plt.close(fig)
     else:
         return fig, axes
+
+
+def plot_history(
+    history: dict, plot_dir: str = None, keywords: List[str] = None
+) -> Union[None, Tuple[plt.Figure, List[plt.Axes]]]:
+    """Plot the training history.
+
+    Parameters
+    ----------
+    history : dict
+        History dictionary
+    plot_dir : str, optional
+        Directory to save the plot.
+    keyword : List[str], optional
+        List of keywords to filter the history. If None, all history
+        will be plotted.
+
+    Returns
+    -------
+    fig : plt.Figure
+        Figure object.
+    ax : List[plt.Axes]
+        Axes object.
+    """
+    fig, ax1 = plt.subplots()
+    ax1.set_xlabel("Epoch")
+    ax1.set_ylabel("Loss")
+    ax2 = ax1.twinx()
+    ax2.set_ylabel("Accuracy")
+    keywords = keywords or list(history.keys())
+    for key in history.keys():
+        if key not in keywords:
+            continue
+        if "loss" in key:
+            ax1.plot(history[key], "b" if "val" in key else "r", label=key)
+        elif "top" in key:
+            ax2.plot(history[key], "b--" if "val" in key else "r--", label=key)
+        else:
+            continue
+    ax1.legend(loc="upper left")
+    ax2.legend(loc="upper right")
+
+    if plot_dir is not None:
+        fig.savefig(f"{plot_dir}/history.png")
+        plt.close(fig)
+    else:
+        return fig, [ax1, ax2]
