@@ -266,7 +266,10 @@ def plot_time_frequency(
 
 
 def plot_history(
-    history: dict, plot_dir: str = None, keywords: List[str] = None
+    history: dict,
+    plot_dir: str = None,
+    keywords: List[str] = None,
+    epoch_range: tuple = None,
 ) -> Union[None, Tuple[plt.Figure, List[plt.Axes]]]:
     """Plot the training history.
 
@@ -279,6 +282,8 @@ def plot_history(
     keyword : List[str], optional
         List of keywords to filter the history. If None, all history
         will be plotted.
+    epoch_range : tuple, optional
+        Range of epochs to plot.
 
     Returns
     -------
@@ -293,17 +298,40 @@ def plot_history(
     ax2 = ax1.twinx()
     ax2.set_ylabel("Accuracy")
     keywords = keywords or list(history.keys())
+
+    if epoch_range is not None:
+        epoch_start = epoch_range[0]
+        epoch_end = epoch_range[1]
+    else:
+        epoch_start = 1
+        epoch_end = len(history["loss"])
+
+    epoch_indices = np.arange(epoch_start, epoch_end + 1)
+
     for key in history.keys():
         if key not in keywords:
             continue
         if "loss" in key:
-            ax1.plot(history[key], "b" if "val" in key else "r", label=key)
+            ax1.plot(
+                epoch_indices,
+                history[key][epoch_start - 1 : epoch_end],
+                "b" if "val" in key else "r",
+                label=key,
+            )
         elif "top" in key:
-            ax2.plot(history[key], "b--" if "val" in key else "r--", label=key)
+            ax2.plot(
+                epoch_indices,
+                history[key][epoch_start - 1 : epoch_end],
+                "b--" if "val" in key else "r--",
+                label=key,
+            )
         else:
             continue
     ax1.legend(loc="upper left")
     ax2.legend(loc="upper right")
+
+    # Set x-axis limits
+    ax1.set_xlim((epoch_start - 1, epoch_end + 1))
 
     if plot_dir is not None:
         fig.savefig(f"{plot_dir}/history.png")

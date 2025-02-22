@@ -3,6 +3,7 @@ from glob import glob
 
 import numpy as np
 import matplotlib.pyplot as plt
+import pickle
 from sklearn.decomposition import PCA
 
 from osl_dynamics.inference import tf_ops
@@ -14,6 +15,8 @@ from osl_foundation.utils import plotting as oslf_plotting
 
 # Set GPU memory growth
 tf_ops.gpu_growth()
+
+generate_data = True
 
 # ---------- Directories ---------- #
 data_dir = "sim_data"
@@ -33,14 +36,19 @@ generator = load_model(generator_dir)
 tokens = generator.tokenizer.tokenize_data(data)
 reconstructed_data = generator.tokenizer.reconstruct_data(tokens)
 
-# ---------- Generate data using the generator ---------- #
-generated_data = generator.generate_data(
-    n_samples=2048,
-    method="top_k",
-    k=int(generator.config.model_config.n_tokens * 0.8),
-    batch_size=len(data_files),
-    extra_labels=[np.arange(len(data_files))],
-)
+if generate_data:
+    # ---------- Generate data using the generator ---------- #
+    generated_data = generator.generate_data(
+        n_samples=2048,
+        method="top_k",
+        k=int(generator.config.model_config.n_tokens * 0.8),
+        batch_size=len(data_files),
+        extra_labels=[np.arange(len(data_files))],
+    )
+    pickle.dump(generated_data, open(f"{generator_dir}/generated_data.pkl", "wb"))
+else:
+    generated_data = pickle.load(open(f"{generator_dir}/generated_data.pkl", "rb"))
+
 
 # ---------- Plot results ---------- #
 

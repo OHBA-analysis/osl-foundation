@@ -13,7 +13,7 @@ from osl_dynamics.inference import initializers as osld_initializers
 from osl_dynamics.utils.misc import get_argument, replace_argument
 
 from osl_foundation.config import Config
-from osl_foundation.utils import plotting
+from osl_foundation.utils import plotting, misc
 
 _logger = logging.getLogger("osl-foundation")
 
@@ -198,7 +198,9 @@ class BaseModel:
         )
 
         history = self.model.fit(*args, **kwargs)
-        self.history = history.history
+
+        # Update history
+        self.history = misc.update_history(self.history, history.history)
 
     def load_weights(self, filepath: str) -> tf.keras.Model:
         """Load weights from a file.
@@ -246,6 +248,18 @@ class BaseModel:
         """
         self.config.save_config(dirname)
 
+    def save_history(self, dirname: str) -> None:
+        """
+        Save the training history to a directory.
+
+        Parameters
+        ----------
+        dirname : str
+            Directory to save the history.
+        """
+        with open(f"{dirname}/history.pkl", "wb") as f:
+            pickle.dump(self.history, f)
+
     def save(self, dirname: str) -> None:
         """
         Save the model config and weights to a directory.
@@ -258,8 +272,7 @@ class BaseModel:
 
         # Save model config and history
         self.save_config(dirname)
-        with open(f"{dirname}/history.pkl", "wb") as f:
-            pickle.dump(self.history, f)
+        self.save_history(dirname)
 
         # Save model weights if the best model is not already saved
         saved_best = any(

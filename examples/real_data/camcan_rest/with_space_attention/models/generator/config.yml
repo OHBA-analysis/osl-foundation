@@ -32,3 +32,5 @@ training_config:
   optimizer:
     learning_rate: 1.0e-05
   multi_gpu: True
+  checkpoint:
+    save_dir: models/generator

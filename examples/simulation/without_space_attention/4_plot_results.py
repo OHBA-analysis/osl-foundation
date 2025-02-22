@@ -3,6 +3,7 @@ from glob import glob
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pickle
 
 from osl_dynamics.inference import tf_ops
 from osl_dynamics.data import Data
@@ -12,6 +13,8 @@ from osl_foundation.utils import plotting
 
 # Set GPU memory growth
 tf_ops.gpu_growth()
+
+generate_data = True
 
 # ---------- Directories ---------- #
 data_dir = "sim_data"
@@ -25,19 +28,23 @@ data = Data(data_files)
 data.standardize()
 
 # ---------- Load generator ---------- #
-generator = load_model(generator_dir)
+generator = load_model(generator_dir, from_checkpoint=True)
 
 # ---------- Reconstructed data from the tokenizer ---------- #
 tokens = generator.tokenizer.tokenize_data(data)
 reconstructed_data = generator.tokenizer.reconstruct_data(tokens)
 
-# ---------- Generate data using the generator ---------- #
-generated_data = generator.generate_data(
-    n_samples=2048,
-    method="top_k",
-    k=int(generator.config.model_config.n_tokens * 0.8),
-    batch_size=len(data_files),
-)
+if generate_data:
+    # ---------- Generate data using the generator ---------- #
+    generated_data = generator.generate_data(
+        n_samples=2048,
+        method="top_k",
+        k=int(generator.config.model_config.n_tokens * 0.8),
+        batch_size=len(data_files),
+    )
+    pickle.dump(generated_data, open(f"{generator_dir}/generated_data.pkl", "wb"))
+else:
+    generated_data = pickle.load(open(f"{generator_dir}/generated_data.pkl", "rb"))
 
 # ---------- Plot results ---------- #
 
@@ -46,7 +53,7 @@ plotting.plot_aec(
     data_files,
     reconstructed_data,
     generated_data,
-    window_size=100,
+    window_size=20,
     sampling_frequency=100,
     titles=["Original", "Reconstructed", "Generated"],
     filename=f"{plot_dir}/aec.png",

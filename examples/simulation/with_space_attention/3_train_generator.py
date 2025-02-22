@@ -54,12 +54,8 @@ generator_config = f"""
             learning_rate: 0.00002
         batch_size: 8
         n_epochs: 40
-        save_best:
-            filepath: {generator_dir}/weights.h5
-            monitor: val_loss
-            save_best_only: true
-            save_weights_only: true
-            verbose: 1
+        checkpoint:
+            save_dir: {generator_dir}
 """
 
 generator = create_model(generator_config, save_dir=generator_dir)
