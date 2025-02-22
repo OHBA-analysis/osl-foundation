@@ -12,20 +12,9 @@ tf_ops.gpu_growth()
 
 data_dir = "../tokenized_data_tfrecords"
 generator_dir = "models/generator"
-checkpoint_dir = f"{generator_dir}/checkpoint"
-os.makedirs(checkpoint_dir, exist_ok=True)
 
 generator = create_model(f"{generator_dir}/config.yml")
-checkpoint = tf.train.Checkpoint(
-    model=generator.model, optimizer=generator.model.optimizer
-)
-
-# Load previous model if exists
-checkpoint_path = tf.train.latest_checkpoint(checkpoint_dir)
-if checkpoint_path:
-    print(f"Restoring from {checkpoint_path}")
-    with generator.config.training_config.strategy.scope():
-        checkpoint.restore(checkpoint_path).expect_partial()
+generator.summary()
 
 # Load data
 train_data, val_data = load_tfrecord_dataset(
@@ -41,22 +30,3 @@ generator.fit(
     validation_data=val_data,
     tokenize=False,
 )
-
-# Update and save history
-if os.path.exists(f"{generator_dir}/history.pkl"):
-    with open(f"{generator_dir}/history.pkl", "rb") as f:
-        history = pickle.load(f)
-else:
-    history = {}
-
-for k, v in generator.history.items():
-    if k in history:
-        history[k].extend(v)
-    else:
-        history[k] = v
-
-with open(f"{generator_dir}/history.pkl", "wb") as f:
-    pickle.dump(history, f)
-
-# Save model
-checkpoint.save(file_prefix=f"{checkpoint_dir}/ckpt")

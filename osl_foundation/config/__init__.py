@@ -164,6 +164,12 @@ def get_training_config(config: dict) -> BaseTrainingConfig:
     # Set number of epochs
     training_config.set_n_epochs(config.get("n_epochs", 10))
 
+    # Set strategy
+    if not config.get("multi_gpu", False):
+        training_config.set_strategy(get_strategy())
+    else:
+        training_config.set_strategy(tf.distribute.MirroredStrategy())
+
     # Set callbacks
     callbacks = []
     if "temperature_annealing" in config:
@@ -184,10 +190,14 @@ def get_training_config(config: dict) -> BaseTrainingConfig:
             )
         )
     if "checkpoint" in config:
-        save_freq = config["checkpoint"]["save_freq"]
-        checkpoint_dir = config["checkpoint"]["checkpoint_dir"]
+        save_freq = config["checkpoint"].get("save_freq", 1)
+        save_dir = config["checkpoint"]["save_dir"]
         callbacks.append(
-            CheckpointCallback(save_freq=save_freq, checkpoint_dir=checkpoint_dir)
+            CheckpointCallback(
+                save_freq=save_freq,
+                checkpoint_dir=f"{save_dir}/checkpoints",
+                strategy=training_config.strategy,
+            )
         )
 
     if "lr_decay" in config:
@@ -203,12 +213,6 @@ def get_training_config(config: dict) -> BaseTrainingConfig:
         callbacks.append(tf.keras.callbacks.ModelCheckpoint(**save_best_kwargs))
 
     training_config.set_callbacks(callbacks)
-
-    # Set strategy
-    if not config.get("multi_gpu", False):
-        training_config.set_strategy(get_strategy())
-    else:
-        training_config.set_strategy(tf.distribute.MirroredStrategy())
 
     return training_config
 
