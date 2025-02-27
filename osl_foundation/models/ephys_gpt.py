@@ -719,6 +719,10 @@ class EphysGPT(BaseModel):
             )
             return tokens
 
+        @tf.function
+        def call_model(inputs):
+            return self.model(inputs, training=False)
+
         # ---------- Validation ---------- #
         if method not in ["top_k", "top_p", "argmax"]:
             raise ValueError(
@@ -759,14 +763,10 @@ class EphysGPT(BaseModel):
             # place_holder.shape = (batch_size, sequence_length + 1, n_channels)
 
             # Prediction logits for the next token
-            logits = (
-                (
-                    self.model([place_holder] + extra_labels, training=False)[1][:, -1]
-                    / temperature
-                )
-                .numpy()
-                .astype(np.float32)
-            )
+            with self.config.training_config.strategy.scope():
+                output = call_model([place_holder] + extra_labels)
+
+            logits = (output[1][:, -1] / temperature).numpy().astype(np.float32)
             # logits.shape = (batch_size, n_channels, n_tokens)
 
             # Sample the next token
