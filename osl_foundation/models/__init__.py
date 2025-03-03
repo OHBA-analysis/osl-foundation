@@ -72,7 +72,7 @@ def load_model(
         with model.config.training_config.strategy.scope():
             checkpoint.restore(checkpoint_path).expect_partial()
     else:
-        model.load_weights(f"{model_dir}/weights.h5")
+        model.load_weights(f"{model_dir}/weights.h5").expect_partial()
 
     try:
         with open(f"{model_dir}/history.pkl", "rb") as f:

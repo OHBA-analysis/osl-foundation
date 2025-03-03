@@ -105,3 +105,66 @@ class CheckpointCallback(tf.keras.callbacks.Callback):
         _logger.info(f"Saving history to {self.history_dir}/history.pkl")
         with open(f"{self.history_dir}/history.pkl", "wb") as f:
             pickle.dump(history, f)
+
+
+class SpaceAttentionAnnealingCallback(tf.keras.callbacks.Callback):
+    """Callback to anneal the dropout rate of the space attention layers.
+
+    Parameters
+    ----------
+    start_epoch : int
+        Epoch at which to start annealing the dropout rate.
+    end_epoch : int
+        Epoch at which to end annealing the dropout rate.
+    start_dropout_rate : float
+        Starting dropout rate for the annealing.
+    end_dropout_rate : float
+        Ending dropout rate for the annealing.
+    """
+
+    def __init__(
+        self,
+        start_epoch: int,
+        end_epoch: int,
+        start_dropout_rate: float,
+        end_dropout_rate: float,
+    ):
+        self.start_epoch = start_epoch
+        self.end_epoch = end_epoch
+        self.start_dropout_rate = start_dropout_rate
+        self.end_dropout_rate = end_dropout_rate
+        self.n_stages = end_epoch - start_epoch
+        self.dropout_rates = np.linspace(
+            start_dropout_rate, end_dropout_rate, self.n_stages
+        )
+
+    def on_train_begin(self, logs=None):
+        decoder_layer = self.model.get_layer("decoder")
+        attention_layers = decoder_layer.attention_layers
+
+        for layer in attention_layers:
+            passta_layer = layer.passta_layer
+            passta_layer.channel_attention_dropout.assign(self.start_dropout_rate)
+
+    def on_epoch_begin(self, epoch, logs=None):
+        stage = epoch - self.start_epoch + 1
+        if stage < 0:
+            stage = 0
+        if stage >= self.n_stages:
+            stage = self.n_stages - 1
+        dropout_rate = self.dropout_rates[stage]
+
+        decoder_layer = self.model.get_layer("decoder")
+        attention_layers = decoder_layer.attention_layers
+
+        for layer in attention_layers:
+            passta_layer = layer.passta_layer
+            passta_layer.channel_attention_dropout.assign(dropout_rate)
+
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        decoder_layer = self.model.get_layer("decoder")
+        attention_layers = decoder_layer.attention_layers
+        logs["space_attention_dropout"] = attention_layers[
+            0
+        ].passta_layer.channel_attention_dropout.numpy()

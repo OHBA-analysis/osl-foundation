@@ -703,8 +703,6 @@ class PASSTALayer(tf.keras.layers.Layer):
         self.latent_sequence_length = latent_sequence_length
         self.key_dim = key_dim
         self.pos_embedding_type = pos_embedding_type
-        self.channel_attention_dropout = channel_attention_dropout
-        self.within_channel_attention_dropout = within_channel_attention_dropout
         self.n_patches = n_patches
         self.patch_length = patch_length
         self.unpatched_length = unpatched_length
@@ -724,6 +722,14 @@ class PASSTALayer(tf.keras.layers.Layer):
 
         # Channel attention layer
         self.channel_attention_layer = ChannelAttention(key_dim)
+
+        # Channel attention dropouts
+        self.channel_attention_dropout = tf.Variable(
+            channel_attention_dropout, trainable=False
+        )
+        self.within_channel_attention_dropout = tf.Variable(
+            within_channel_attention_dropout, trainable=False
+        )
 
     def _compute_time_attention_mask(self) -> tf.Tensor:
         """

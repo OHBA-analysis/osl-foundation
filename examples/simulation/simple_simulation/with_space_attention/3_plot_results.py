@@ -5,19 +5,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pickle
 
-from osl_dynamics.inference import tf_ops
 from osl_dynamics.data import Data
 
 from osl_foundation import load_model
 from osl_foundation.utils import plotting
 
-# Set GPU memory growth
-tf_ops.gpu_growth()
-
-generate_data = True
 
 # ---------- Directories ---------- #
-data_dir = "sim_data"
+data_dir = "../sim_data"
 generator_dir = "models/generator"
 plot_dir = "plots/generated_data"
 os.makedirs(plot_dir, exist_ok=True)
@@ -34,17 +29,8 @@ generator = load_model(generator_dir, from_checkpoint=True)
 tokens = generator.tokenizer.tokenize_data(data)
 reconstructed_data = generator.tokenizer.reconstruct_data(tokens)
 
-if generate_data:
-    # ---------- Generate data using the generator ---------- #
-    generated_data = generator.generate_data(
-        n_samples=2048,
-        method="top_k",
-        k=int(generator.config.model_config.n_tokens * 0.8),
-        batch_size=len(data_files),
-    )
-    pickle.dump(generated_data, open(f"{generator_dir}/generated_data.pkl", "wb"))
-else:
-    generated_data = pickle.load(open(f"{generator_dir}/generated_data.pkl", "rb"))
+# ---------- Load generated data ---------- #
+generated_data = pickle.load(open(f"{generator_dir}/generated_data.pkl", "rb"))
 
 # ---------- Plot results ---------- #
 
@@ -171,3 +157,5 @@ for i in range(n_channels):
 fig.tight_layout()
 fig.savefig(f"{plot_dir}/psd_generated_data.png")
 plt.close(fig)
+
+data.delete_dir()

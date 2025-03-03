@@ -664,12 +664,42 @@ class EphysGPT(BaseModel):
             inputs=[data] + extra_labels, outputs=[loss, y_pred], name="ephys_gpt"
         )
 
+    @tf.function
+    def one_step_sample(
+        self,
+        inputs: list,
+        top_p: float = None,
+        top_k: int = None,
+        temperature: float = 1.0,
+    ) -> tf.Tensor:
+        """
+        Generate a single token using the model.
+
+        Parameters
+        ----------
+        inputs : list
+            List of inputs to the model.
+        top_p : float, optional
+            Top p proportion of values to keep.
+        top_k : int, optional
+            Top k number of values to keep.
+        temperature : float, optional
+            Temperature for sampling from the logits.
+
+        Returns
+        -------
+        sampled_tokens : tf.Tensor
+            The sampled tokens. Shape: (*batch_dims).
+        """
+        output = self.model(inputs, training=False)
+        logits = output[1][:, -1] / temperature
+        return sample_from_logits(logits, top_p, top_k)
+
     def generate_tokens(
         self,
         n_samples: int,
-        method: str,
-        p: float = None,
-        k: int = None,
+        top_p: float = None,
+        top_k: int = None,
         temperature: float = 1.0,
         batch_size: int = None,
         prompt: np.ndarray = None,
@@ -682,13 +712,10 @@ class EphysGPT(BaseModel):
         ----------
         n_samples : int
             Number of samples per sequence to generate.
-        method : str
-            Method for generating the tokens.
-            Options are 'top_k', 'top_p', 'argmax'.
-        p : float, optional
-            Top p proportion of values to keep. Must be specified if method is 'top_p'.
-        k : int, optional
-            Top k number of values to keep. Must be specified if method is 'top_k'.
+        top_p : float, optional
+            Top p proportion of values to keep.
+        top_k : int, optional
+            Top k number of values to keep.
         temperature : float, optional
             Temperature for sampling from the logits.
         batch_size : int, optional
@@ -719,16 +746,7 @@ class EphysGPT(BaseModel):
             )
             return tokens
 
-        @tf.function
-        def call_model(inputs):
-            return self.model(inputs, training=False)
-
         # ---------- Validation ---------- #
-        if method not in ["top_k", "top_p", "argmax"]:
-            raise ValueError(
-                f"Invalid method {method}. Options are 'top_k', 'top_p', 'argmax'."
-            )
-
         if prompt is None:
             prompt = _random_tokens()
         elif isinstance(prompt, np.ndarray):
@@ -764,19 +782,12 @@ class EphysGPT(BaseModel):
 
             # Prediction logits for the next token
             with self.config.training_config.strategy.scope():
-                output = call_model([place_holder] + extra_labels)
-
-            logits = (output[1][:, -1] / temperature).numpy().astype(np.float32)
-            # logits.shape = (batch_size, n_channels, n_tokens)
-
-            # Sample the next token
-            next_token = sample_from_logits(
-                logits=logits, method=method, p=p, k=k
-            ).numpy()
-            # next_token.shape = (batch_size, n_channels)
+                next_token = self.one_step_sample(
+                    [place_holder] + extra_labels, top_p, top_k, temperature
+                )
 
             # Add the next token to the prompt
-            generated_tokens[:, i] = next_token.astype(np.int32)
+            generated_tokens[:, i] = next_token.numpy().astype(np.int32)
 
         return generated_tokens[:, sequence_length:]
 
