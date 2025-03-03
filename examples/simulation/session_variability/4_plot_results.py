@@ -40,8 +40,7 @@ if generate_data:
     # ---------- Generate data using the generator ---------- #
     generated_data = generator.generate_data(
         n_samples=2048,
-        method="top_k",
-        k=int(generator.config.model_config.n_tokens * 0.8),
+        top_k=int(generator.config.model_config.n_tokens * 0.8),
         batch_size=len(data_files),
         extra_labels=[np.arange(len(data_files))],
     )

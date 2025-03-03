@@ -20,6 +20,7 @@ from osl_dynamics.config_api.pipeline import load_config
 from osl_foundation.inference.callbacks import (
     TemperatureAnnealingCallback,
     CheckpointCallback,
+    SpaceAttentionAnnealingCallback,
 )
 from osl_foundation.config.base import BaseTrainingConfig, BaseModelConfig
 from osl_foundation.config.tokenizer_config import OSLTokenizerModelConfig
@@ -211,6 +212,13 @@ def get_training_config(config: dict) -> BaseTrainingConfig:
     if "save_best" in config:
         save_best_kwargs = config["save_best"]
         callbacks.append(tf.keras.callbacks.ModelCheckpoint(**save_best_kwargs))
+
+    if "space_attention_annealing" in config:
+        callbacks.append(
+            SpaceAttentionAnnealingCallback(
+                **config["space_attention_annealing"],
+            )
+        )
 
     training_config.set_callbacks(callbacks)
 

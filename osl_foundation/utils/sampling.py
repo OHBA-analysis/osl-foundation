@@ -3,7 +3,7 @@ import tensorflow_probability as tfp
 
 
 def sample_from_logits(
-    logits: tf.Tensor, method: str, p: float = None, k: int = None
+    logits: tf.Tensor, top_p: float = None, top_k: int = None
 ) -> tf.Tensor:
     """
     Sample from the logits using the specified method.
@@ -12,30 +12,24 @@ def sample_from_logits(
     ----------
     logits : tf.Tensor
         The logits to sample from. Shape: (*batch_dims, n_tokens)
-    method : str
-        The sampling method to use. Options: 'top_k', 'top_p', 'argmax'.
-    p : float, optional
-        The probability threshold for top-p sampling. Required if method='top_p'.
-    k : int, optional
-        The number of top logits to sample from. Required if method='top_k'.
+    top_p : float, optional
+        The probability threshold for top-p sampling.
+    top_k : int, optional
+        The number of top logits to sample from.
 
     Returns
     -------
     sampled_tokens : tf.Tensor
-        The sampled tokens. Shape: (*batch_dims)
+        The sampled tokens. Shape: (*batch_dims).
     """
-    if method == "top_k":
-        if k is None:
-            raise ValueError("Argument 'k' is required for top-k sampling.")
-        sampled_tokens = top_k_sampling(logits, k)
-    elif method == "top_p":
-        if p is None:
-            raise ValueError("Argument 'p' is required for top-p sampling.")
-        sampled_tokens = top_p_sampling(logits, p)
-    elif method == "argmax":
-        sampled_tokens = argmax_sampling(logits)
+    if top_p is not None and top_k is not None:
+        raise ValueError("Only one of 'top_p' or 'top_k' can be provided.")
+    elif top_p is not None:
+        sampled_tokens = top_p_sampling(logits, top_p)
+    elif top_k is not None:
+        sampled_tokens = top_k_sampling(logits, top_k)
     else:
-        raise ValueError(f"Unknown sampling method: {method}")
+        sampled_tokens = argmax_sampling(logits)
 
     return tf.cast(sampled_tokens, tf.int32)
 
