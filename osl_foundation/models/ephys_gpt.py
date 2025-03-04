@@ -737,14 +737,25 @@ class EphysGPT(BaseModel):
         batch_size = batch_size or self.config.training_config.batch_size
         n_channels = self.config.model_config.n_channels
         sequence_length = self.config.model_config.sequence_length
-        n_tokens = self.config.model_config.n_tokens
 
         # ---------- Helper functions ---------- #
         def _random_tokens() -> np.ndarray:
-            tokens = np.random.randint(
-                n_tokens, size=(batch_size, sequence_length, n_channels)
+            _rng = np.random.default_rng()
+
+            token_weights = self.tokenizer.vocab["total_token_counts"].astype(
+                np.float32
             )
-            return tokens
+            token_weights /= np.sum(token_weights)
+
+            tokens = (
+                _rng.choice(
+                    len(token_weights),
+                    size=(batch_size, sequence_length, n_channels),
+                    p=token_weights,
+                )
+                + 1
+            )
+            return tokens.astype(np.int32)
 
         # ---------- Validation ---------- #
         if prompt is None:
