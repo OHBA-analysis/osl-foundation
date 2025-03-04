@@ -2,7 +2,7 @@ model_config:
   decoder_parameters:
     channel_attention_dropout: 0.5
     dropout: 0.2
-    feed_forward_activation: leaky_relu
+    feed_forward_activation: gelu
     feed_forward_dim: 100
     latent_sequence_length: 40
     model_dim: 100
