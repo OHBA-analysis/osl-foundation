@@ -42,7 +42,7 @@ if generate_data:
         n_samples=2048,
         top_k=int(generator.config.model_config.n_tokens * 0.8),
         batch_size=len(data_files),
-        extra_labels=[np.arange(len(data_files))],
+        extra_labels={"session_id": np.arange(len(data_files))},
     )
     pickle.dump(generated_data, open(f"{generator_dir}/generated_data.pkl", "wb"))
 else:

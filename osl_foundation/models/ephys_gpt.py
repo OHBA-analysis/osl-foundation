@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Union, Dict
 import logging
 
 import tensorflow as tf
@@ -703,7 +703,8 @@ class EphysGPT(BaseModel):
         temperature: float = 1.0,
         batch_size: int = None,
         prompt: np.ndarray = None,
-        extra_labels: List[np.ndarray] = None,
+        extra_labels: Dict[str, np.ndarray] = None,
+        extra_channels: Dict[str, np.ndarray] = None,
     ) -> np.ndarray:
         """
         Generate tokens using the model.
@@ -726,8 +727,12 @@ class EphysGPT(BaseModel):
             If None, a random sequence is used.
             If np.ndarray, the shape must be (sequence_length, n_channels)
             or (batch_size, sequence_length, n_channels).
-        extra_labels : List[np.ndarray], optional
-            List of extra labels. Each must have shape (batch_size,).
+        extra_labels : Dict[np.ndarray], optional
+            Dictionary of extra labels.
+            Keys are the names of the extra labels. Each value must have shape (batch_size,).
+        extra_channels : Dict[np.ndarray], optional
+            Dictionary of extra channels. Keys are the names of the extra channels.
+            Each value must have shape (batch_size, > sequence_length + n_samples).
 
         Returns
         -------
@@ -772,13 +777,30 @@ class EphysGPT(BaseModel):
             raise ValueError(f"Prompt must be a numpy array.")
 
         if extra_labels is None:
-            extra_labels = []
-        for i in range(len(extra_labels)):
-            if extra_labels[i].shape != (batch_size,):
-                raise ValueError(f"Extra label {i} must have shape (batch_size,).")
-            extra_labels[i] = np.broadcast_to(
-                extra_labels[i][:, None], (batch_size, sequence_length + 1)
+            extra_labels = {}
+        for k in extra_labels.keys():
+            if extra_labels[k].shape != (batch_size,):
+                raise ValueError(f"Extra label {k} must have shape (batch_size,).")
+            extra_labels[k] = np.broadcast_to(
+                extra_labels[k][:, None], (batch_size, sequence_length + 1)
             )
+
+        if extra_channels is None:
+            extra_channels = {}
+        for k in extra_channels.keys():
+            if extra_channels[k].ndim != 2:
+                raise ValueError(
+                    f"Extra channel {k} must have shape (batch_size, n_samples)."
+                )
+            if extra_channels[k].shape[0] != batch_size:
+                raise ValueError(
+                    f"Extra channel {k} must have shape (batch_size, n_samples)."
+                )
+            if not extra_channels[k].shape[1] > sequence_length + n_samples:
+                raise ValueError(
+                    f"Extra channel {k} must have at least n_samples + sequence_length + 1 samples."
+                )
+            extra_channels[k] = extra_channels[k][:, : sequence_length + n_samples + 1]
 
         # ---------- Generate tokens ---------- #
         generated_tokens = np.zeros(
@@ -788,13 +810,23 @@ class EphysGPT(BaseModel):
         for i in trange(
             sequence_length, sequence_length + n_samples, desc="Generating tokens"
         ):
-            place_holder = generated_tokens[:, i - sequence_length : i + 1]
-            # place_holder.shape = (batch_size, sequence_length + 1, n_channels)
+            model_inputs = {"data": generated_tokens[:, i - sequence_length : i + 1]}
+            # model_input["data"].shape = (batch_size, sequence_length + 1, n_channels)
+
+            # Add extra labels to the model inputs
+            model_inputs.update(extra_labels)
+
+            # Add extra channels to the model inputs
+            for k in extra_channels.keys():
+                model_inputs[k] = extra_channels[k][:, i - sequence_length : i + 1]
 
             # Prediction logits for the next token
             with self.config.training_config.strategy.scope():
                 next_token = self.one_step_sample(
-                    [place_holder] + extra_labels, top_p, top_k, temperature
+                    model_inputs,
+                    top_p,
+                    top_k,
+                    temperature,
                 )
 
             # Add the next token to the prompt

@@ -31,7 +31,11 @@ for i, token_data in enumerate(tokenized_data):
         token_data,
     )
 
+mtc = np.load("sim_data/ground_truth/mode_tcs.npy")
+
 tokenized_data = Data(tokenized_data)
+tokenized_data.add_extra_channel("mode_0", [mtc[0]] * tokenized_data.n_sessions)
+tokenized_data.add_extra_channel("mode_1", [mtc[1]] * tokenized_data.n_sessions)
 tokenized_data.save_tfrecord_dataset(
     tfrecord_dir=tokenized_data_tf_dir,
     sequence_length=81,
