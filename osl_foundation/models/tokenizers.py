@@ -78,6 +78,8 @@ class Decoder(tf.keras.layers.Layer):
         Number of tokens.
     token_dim : int
         Dimension of the token.
+    token_kernel_padding : str
+        Padding for the token kernel. Can take "valid", "same", or "causal".
     """
 
     def __init__(
@@ -86,6 +88,7 @@ class Decoder(tf.keras.layers.Layer):
         sequence_length: int,
         n_tokens: int,
         token_dim: int,
+        token_kernel_padding: str,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -95,7 +98,7 @@ class Decoder(tf.keras.layers.Layer):
         self.token_basis_layer = tf.keras.layers.Conv1D(
             filters=n_tokens,
             kernel_size=token_dim,
-            padding="same",
+            padding=token_kernel_padding,
         )
 
     def call(self, inputs):
@@ -184,6 +187,7 @@ class OSLTokenizer(BaseModel):
             config.sequence_length,
             config.n_tokens,
             config.token_dim,
+            config.token_kernel_padding,
             name="decoder",
         )
         mse_loss_layer = MSELossLayer(name="mse_loss")
