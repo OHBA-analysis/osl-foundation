@@ -90,10 +90,12 @@ def plot_aec(
     *inputs,
     window_size: int,
     sampling_frequency: int,
+    frequency_range: list = None,
     axes: List[plt.Axes] = None,
     titles: List[str] = None,
     cmap: str = "viridis",
     filename: str = None,
+    cbar: bool = True,
 ) -> Union[Tuple[plt.Figure, List[plt.Axes]], None]:
     """
     Plot the amplitude envelope correlation (AEC) of the inputs.
@@ -113,6 +115,8 @@ def plot_aec(
           subject or session.
     window_size : int
         Window size in milliseconds.
+    frequency_range : list, optional
+        List of low and high frequencies for the filter.
     sampling_frequency : int
         Sampling frequency in Hz.
     axes : list, optional
@@ -125,6 +129,8 @@ def plot_aec(
         Colormap to use. Default is 'viridis'.
     filename : str, optional
         If provided, the figure will be saved to this filename.
+    cbar : bool, optional
+        Whether to show the colorbar. Default is True.
 
     Returns
     -------
@@ -135,6 +141,8 @@ def plot_aec(
     """
 
     # Validation
+    if titles is None:
+        titles = ["" for _ in range(len(inputs))]
     if len(inputs) != len(titles):
         raise ValueError("The number of titles must match the number of data inputs.")
 
@@ -145,8 +153,10 @@ def plot_aec(
     if window_size % 2 == 0:
         window_size += 1
 
+    frequency_range = frequency_range or [None, None]
+
     methods = {
-        "filter": {"low_freq": 1, "high_freq": 45},
+        "filter": {"low_freq": frequency_range[0], "high_freq": frequency_range[1]},
         "amplitude_envelope": {},
         "moving_average": {"n_window": window_size},
     }
@@ -155,7 +165,7 @@ def plot_aec(
         data.prepare(methods)
         ts = data.time_series(concatenate=True)
         aec = static.functional_connectivity(ts)
-        return aec
+        return aec - np.eye(aec.shape[0])
 
     if axes is None:
         fig, axes = plt.subplots(1, len(inputs), figsize=(5 * (len(inputs) + 1), 5))
@@ -170,7 +180,7 @@ def plot_aec(
     vmax = np.max(aec)
 
     for i in range(len(aec)):
-        sns.heatmap(aec[i], ax=axes[i], cmap=cmap, vmin=vmin, vmax=vmax)
+        sns.heatmap(aec[i], ax=axes[i], cmap=cmap, vmin=vmin, vmax=vmax, cbar=cbar)
         axes[i].set_title(titles[i])
 
     if filename is not None:
