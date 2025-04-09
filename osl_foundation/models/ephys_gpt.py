@@ -125,6 +125,7 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         pos_embedding_type: str = "absolute",
         channel_embedding_dim: int = None,
         extra_labels: List[Label] = None,
+        pretrained_layer: tf.keras.layers.Layer = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -137,44 +138,59 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         self.pos_embedding_type = pos_embedding_type
         self.channel_embedding_dim = channel_embedding_dim
         self.extra_labels = extra_labels
+        self.use_pretrained_layer = pretrained_layer is not None
 
         # ---------- Initialize layers ----------
 
-        # The token embedding layer
-        self.token_embedding_layer = tf.keras.layers.Embedding(
-            n_tokens, token_embedding_dim or embedding_dim
-        )
-        self.token_embedding_output_layer = (
-            IdentityLayer()
-            if token_embedding_dim is None
-            else tf.keras.layers.Dense(embedding_dim)
-        )
-
-        # The position embedding layer
-        if pos_embedding_type == "sinusoidal":
-            self.position_embedding_layer = SinusoidalPositionalEncodingLayer(
-                sequence_length=sequence_length,
+        if pretrained_layer is None:
+            # The token embedding layer
+            self.token_embedding_layer = tf.keras.layers.Embedding(
+                n_tokens, token_embedding_dim or embedding_dim
             )
-            self.position_embedding_output_layer = IdentityLayer()
-        elif pos_embedding_type == "absolute":
-            self.position_embedding_layer = PositionEmbedding(
-                sequence_length=sequence_length, trainable=True
-            )
-            self.position_embedding_output_layer = (
+            self.token_embedding_output_layer = (
                 IdentityLayer()
-                if pos_embedding_dim is None
+                if token_embedding_dim is None
                 else tf.keras.layers.Dense(embedding_dim)
             )
 
-        # The channel embedding layer
-        self.channel_embedding_layer = PositionEmbedding(
-            sequence_length=n_channels, trainable=True
-        )
-        self.channel_embedding_output_layer = (
-            IdentityLayer()
-            if channel_embedding_dim is None
-            else tf.keras.layers.Dense(embedding_dim)
-        )
+            # The position embedding layer
+            if pos_embedding_type == "sinusoidal":
+                self.position_embedding_layer = SinusoidalPositionalEncodingLayer(
+                    sequence_length=sequence_length,
+                )
+                self.position_embedding_output_layer = IdentityLayer()
+            elif pos_embedding_type == "absolute":
+                self.position_embedding_layer = PositionEmbedding(
+                    sequence_length=sequence_length, trainable=True
+                )
+                self.position_embedding_output_layer = (
+                    IdentityLayer()
+                    if pos_embedding_dim is None
+                    else tf.keras.layers.Dense(embedding_dim)
+                )
+
+            # The channel embedding layer
+            self.channel_embedding_layer = PositionEmbedding(
+                sequence_length=n_channels, trainable=True
+            )
+            self.channel_embedding_output_layer = (
+                IdentityLayer()
+                if channel_embedding_dim is None
+                else tf.keras.layers.Dense(embedding_dim)
+            )
+        else:
+            self.token_embedding_layer = pretrained_layer.token_embedding_layer
+            self.token_embedding_output_layer = (
+                pretrained_layer.token_embedding_output_layer
+            )
+            self.position_embedding_layer = pretrained_layer.position_embedding_layer
+            self.position_embedding_output_layer = (
+                pretrained_layer.position_embedding_output_layer
+            )
+            self.channel_embedding_layer = pretrained_layer.channel_embedding_layer
+            self.channel_embedding_output_layer = (
+                pretrained_layer.channel_embedding_output_layer
+            )
 
         # The extra embedding layers
         self.extra_embedding_layers = []
@@ -190,7 +206,12 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
                 else tf.keras.layers.Dense(embedding_dim)
             )
 
-    def call(self, inputs, **kwargs):
+    def call(self, inputs, training=None, **kwargs):
+        if self.use_pretrained_layer:
+            training_1 = False
+        else:
+            training_1 = training
+
         data, extra_labels = inputs
         # data.shape = (batch_size, sequence_length, n_channels)
         # extra_labels[0].shape = (batch_size, sequence_length + 1)
@@ -199,7 +220,9 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         x = data
         # x.shape = (batch_size, sequence_length, n_channels)
 
-        embeddings = self.token_embedding_output_layer(self.token_embedding_layer(x))
+        embeddings = self.token_embedding_output_layer(
+            self.token_embedding_layer(x, training=training_1), training=training_1
+        )
         # embeddings.shape = (batch_size, sequence_length, n_channels, embedding_dim)
 
         # ---------- Position embeddings ---------- #
@@ -212,7 +235,8 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
 
             embeddings += tf.transpose(
                 self.position_embedding_output_layer(
-                    self.position_embedding_layer(positions)
+                    self.position_embedding_layer(positions, training=training_1),
+                    training=training_1,
                 ),
                 perm=[0, 2, 1, 3],
             )
@@ -225,7 +249,8 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         # channels.shape = (batch_size, sequence_length, n_channels, channel_embedding_dim)
 
         embeddings += self.channel_embedding_output_layer(
-            self.channel_embedding_layer(channels)
+            self.channel_embedding_layer(channels, training=training_1),
+            training=training_1,
         )
         # embeddings.shape = (batch_size, sequence_length, n_channels, embedding_dim)
 
@@ -240,7 +265,9 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
             label = tf.expand_dims(label[:, :-1], -1)
             # label.shape = (batch_size, sequence_length, 1)
 
-            embeddings += output_layer(layer(label))
+            embeddings += output_layer(
+                layer(label, training=training), training=training
+            )
 
         return embeddings
 
@@ -423,6 +450,7 @@ class EphysGPT(BaseModel):
     """
 
     def build_model(self) -> None:
+        self.pretrained_model = self._load_pretrained_model()
         self.tokenizer = self._load_tokenizer()
         self.model = self._build_model()
 
@@ -561,23 +589,97 @@ class EphysGPT(BaseModel):
 
     def _load_tokenizer(self) -> OSLTokenizer:
         """Load a trained tokenizer."""
-        tokenizer_path = self.config.model_config.tokenizer_path
-        if tokenizer_path is None:
-            return None
+        if self.pretrained_model is not None:
+            tokenizer = self.pretrained_model.tokenizer
+        else:
+            tokenizer_path = self.config.model_config.tokenizer_path
+            if tokenizer_path is None:
+                return None
 
-        _logger.info(f"Loaded tokenizer from {tokenizer_path}")
-        tokenizer = OSLTokenizer.load_model(tokenizer_path)
+            tokenizer = OSLTokenizer.load_model(tokenizer_path)
+            _logger.info(f"Loaded tokenizer from {tokenizer_path}")
+
         n_tokens = len(tokenizer.vocab["token_order"]) + 1
         _logger.info(f"Setting n_tokens to {n_tokens}")
         self.config.model_config.n_tokens = n_tokens
 
         return tokenizer
 
-    def _load_pretrained_model(self) -> tf.keras.Model:
-        pass
+    def _load_pretrained_model(self):
+        """Load a pretrained model."""
+        pretrained_model_path = self.config.model_config.pretrained_model_path
+        if pretrained_model_path is None:
+            return
 
-    def _get_input_embedding_layer(self) -> tf.keras.layers.Layer:
-        pass
+        pretrained_model_checkpoint = (
+            self.config.model_config.pretrained_model_checkpoint
+        )
+        pretrained_model = EphysGPT.load_model(
+            pretrained_model_path, pretrained_model_checkpoint
+        )
+        _logger.info(f"Loaded pretrained model from {pretrained_model_path}")
+        pretrained_model.model.trainable = False
+        return pretrained_model
+
+    @property
+    def pretrained_layers(self):
+        if self.pretrained_model is None:
+            return []
+        return self.config.model_config.pretrained_layers
+
+    def _get_input_embedding_layer(self):
+        config = self.config.model_config
+        if "input_embedding" in self.pretrained_layers:
+            pretrained_layer = self.pretrained_model.model.get_layer("input_embedding")
+        else:
+            pretrained_layer = None
+
+        return InputEmbeddingLayer(
+            config.embedding_dim,
+            config.n_tokens,
+            config.sequence_length,
+            config.n_channels,
+            config.token_embedding_dim,
+            config.pos_embedding_dim,
+            config.pos_embedding_type,
+            config.channel_embedding_dim,
+            config.extra_labels,
+            pretrained_layer=pretrained_layer,
+        )
+
+    def _get_decoder_layer(self):
+        config = self.config.model_config
+        if "decoder" in self.pretrained_layers:
+            return self.pretrained_model.model.get_layer("decoder")
+        else:
+            return DecoderLayer(
+                config.n_layers,
+                config.n_heads,
+                config.model_dim,
+                config.embedding_dim,
+                config.n_channels,
+                config.sequence_length,
+                config.latent_sequence_length,
+                config.n_patches,
+                config.patch_length,
+                config.unpatched_length,
+                config.pos_embedding_type,
+                config.channel_attention_dropout,
+                config.within_channel_attention_dropout,
+                config.feed_forward_dim,
+                config.feed_forward_activation,
+                config.dropout,
+                config.norm_type,
+                config.n_groups,
+                name="decoder",
+            )
+
+    def _get_prediction_head_layer(self):
+        config = self.config.model_config
+        if "prediction_head" in self.pretrained_layers:
+            return self.pretrained_model.model.get_layer("prediction_head")
+        else:
+            return tf.keras.layers.Dense(config.n_tokens, name="prediction_head")
 
     def _build_model(self) -> tf.keras.Model:
         config = self.config.model_config
@@ -601,42 +703,9 @@ class EphysGPT(BaseModel):
 
         # ---------- Initialize layers ---------- #
         shift_token_layer = ShiftTokenLayer(name="shift_token")
-        input_embedding_layer = InputEmbeddingLayer(
-            config.embedding_dim,
-            config.n_tokens,
-            config.sequence_length,
-            config.n_channels,
-            config.token_embedding_dim,
-            config.pos_embedding_dim,
-            config.pos_embedding_type,
-            config.channel_embedding_dim,
-            config.extra_labels,
-            name="input_embedding",
-        )
-        decoder_layer = DecoderLayer(
-            config.n_layers,
-            config.n_heads,
-            config.model_dim,
-            config.embedding_dim,
-            config.n_channels,
-            config.sequence_length,
-            config.latent_sequence_length,
-            config.n_patches,
-            config.patch_length,
-            config.unpatched_length,
-            config.pos_embedding_type,
-            config.channel_attention_dropout,
-            config.within_channel_attention_dropout,
-            config.feed_forward_dim,
-            config.feed_forward_activation,
-            config.dropout,
-            config.norm_type,
-            config.n_groups,
-            name="decoder",
-        )
-        prediction_head_layer = tf.keras.layers.Dense(
-            config.n_tokens, name="prediction_head"
-        )
+        input_embedding_layer = self._get_input_embedding_layer()
+        decoder_layer = self._get_decoder_layer()
+        prediction_head_layer = self._get_prediction_head_layer()
         loss_layer = CrossEntropyLossLayer(
             config.loss_sequence_length,
             config.top_k,
@@ -655,11 +724,13 @@ class EphysGPT(BaseModel):
         # x.shape = (batch_size, sequence_length, n_channels, embedding_dim)
 
         # Run the decoder
-        x = decoder_layer(x)
+        x = decoder_layer(x, training="decoder" in self.pretrained_layers)
         # x.shape = (batch_size, latent_sequence_length, n_channels, model_dim)
 
         # Get the prediction of the next token
-        y_pred = prediction_head_layer(x)
+        y_pred = prediction_head_layer(
+            x, training="prediction_head" in self.pretrained_layers
+        )
         # y_pred.shape = (batch_size, latent_sequence_length, n_channels, n_tokens)
 
         # Calculate the loss

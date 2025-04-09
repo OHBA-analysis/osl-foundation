@@ -31,6 +31,11 @@ class EphysGPTModelConfig(BaseModelConfig):
     # ---------- Tokenizer ---------- #
     tokenizer_path: str = None
 
+    # ---------- Pretrained model ---------- #
+    pretrained_model_path: str = None
+    pretrained_model_checkpoint: str = None
+    pretrained_layers: List[str] = None
+
     # ---------- Input parameters ---------- #
     embedding_dim: int = None
     n_tokens: int = None
@@ -84,9 +89,9 @@ class EphysGPTModelConfig(BaseModelConfig):
             assert self.n_tokens > 0, "n_tokens must be greater than 0"
         assert self.n_channels is not None, "n_channels must be set"
         VALID_POS_EMBEDDING_TYPES = ["absolute", "sinusoidal", "rope", "alibi"]
-        assert self.pos_embedding_type in VALID_POS_EMBEDDING_TYPES, (
-            f"pos_embedding_type must be one of {VALID_POS_EMBEDDING_TYPES}"
-        )
+        assert (
+            self.pos_embedding_type in VALID_POS_EMBEDDING_TYPES
+        ), f"pos_embedding_type must be one of {VALID_POS_EMBEDDING_TYPES}"
         self.extra_labels = self.extra_labels or []
 
     def _validate_decoder_parameters(self) -> None:
@@ -144,9 +149,7 @@ class EphysGPTModelConfig(BaseModelConfig):
         self.n_tokens = config.get("n_tokens", 128)
         self.token_embedding_dim = config.get("token_embedding_dim", None)
         self.pos_embedding_dim = config.get("pos_embedding_dim", None)
-        self.pos_embedding_type = config.get(
-            "pos_embedding_type", "absolute"
-        )
+        self.pos_embedding_type = config.get("pos_embedding_type", "absolute")
         self.channel_embedding_dim = config.get("channel_embedding_dim", None)
         self.extra_labels = [Label(**label) for label in config.get("extra_labels", [])]
 
