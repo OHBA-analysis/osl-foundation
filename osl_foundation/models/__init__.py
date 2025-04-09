@@ -5,6 +5,14 @@ import tensorflow as tf
 
 from osl_foundation.config import Config, get_config
 
+from osl_foundation.models.tokenizers import OSLTokenizer
+from osl_foundation.models.ephys_gpt import EphysGPT
+
+models = {
+    "osl_tokenizer": OSLTokenizer,
+    "ephys_gpt": EphysGPT,
+}
+
 
 def create_model(config: Union[Config, dict, str], save_dir: str = None):
     """Create a model based on the configuration.
@@ -28,20 +36,18 @@ def create_model(config: Union[Config, dict, str], save_dir: str = None):
     if save_dir:
         config.save_config(save_dir)
 
-    if config.model_config.name == "osl_tokenizer":
-        from osl_foundation.models.tokenizers import OSLTokenizer as Model
+    if config.model_config.name not in models:
+        raise ValueError(
+            f"Model {config.model_config.name} not implemented. "
+            f"Options are {', '.join(models.keys())}"
+        )
 
-    elif config.model_config.name == "ephys_gpt":
-        from osl_foundation.models.ephys_gpt import EphysGPT as Model
-
-    else:
-        raise ValueError(f"Model {config.model_config.name} not implemented.")
-
-    return Model(config)
+    return models[config.model_config.name](config)
 
 
 def load_model(
-    model_dir: str, from_checkpoint: bool = False, checkpoint_path: str = None
+    model_dir: str,
+    checkpoint: str = None,
 ):
     """Load a saved model from a directory.
 
@@ -49,11 +55,9 @@ def load_model(
     ----------
     model_dir : str
         Directory containing the saved model.
-    from_checkpoint : bool, optional
-        Whether to load the model from a checkpoint.
-    checkpoint_path : str, optional
-        Path to a specific checkpoint to load. If not provided, the latest
-        checkpoint in `model_dir/checkpoints` will be loaded.
+    checkpoint : str, optional
+        Path to the checkpoint file. If `latest`, the latest checkpoint will be used.
+        Defaults to None, in which case the weights will be loaded from `weights.h5`.
 
     Returns
     -------
@@ -61,22 +65,8 @@ def load_model(
         Model object.
     """
     config = get_config(configuration=f"{model_dir}/config.yml")
-    model = create_model(config)
-    if from_checkpoint:
-        checkpoint = tf.train.Checkpoint(
-            model=model.model, optimizer=model.model.optimizer
-        )
-        checkpoint_path = checkpoint_path or tf.train.latest_checkpoint(
-            f"{model_dir}/checkpoints"
-        )
-        with model.config.training_config.strategy.scope():
-            checkpoint.restore(checkpoint_path).expect_partial()
-    else:
-        model.load_weights(f"{model_dir}/weights.h5").expect_partial()
 
-    try:
-        with open(f"{model_dir}/history.pkl", "rb") as f:
-            model.history = pickle.load(f)
-    except FileNotFoundError:
-        pass
-    return model
+    return models[config.model_config.name].load_model(
+        model_dir,
+        checkpoint,
+    )

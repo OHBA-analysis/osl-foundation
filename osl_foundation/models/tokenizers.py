@@ -422,7 +422,8 @@ class OSLTokenizer(BaseModel):
                 [self.model(x, training=False)[1].numpy() for x in d]
             )
             pve = 100 * (
-                1 - np.sum((original_x - reconstructed_x) ** 2) / np.sum(original_x**2)
+                1
+                - np.sum((original_x - reconstructed_x) ** 2) / np.sum(original_x**2)
             )
             return pve
 
@@ -783,30 +784,3 @@ class OSLTokenizer(BaseModel):
                 os.makedirs(plot_dir, exist_ok=True)
                 fig.savefig(f"{plot_dir}/fitted_signal_ch{n}.png")
                 plt.close(fig)
-
-
-def load_tokenizer(model_dir: str) -> OSLTokenizer:
-    """
-    Load a tokenizer from a directory.
-
-    Parameters
-    ----------
-    model_dir : str
-        Directory containing the tokenizer model.
-
-    Returns
-    -------
-    tokenizer : OSLTokenizer
-        The loaded tokenizer.
-    """
-    config = get_config(f"{model_dir}/config.yml")
-    if config.model_config.name == "osl_tokenizer":
-        tokenizer = OSLTokenizer(config)
-    else:
-        raise NotImplementedError(f"Model {config.model_config.name} not implemented.")
-    tokenizer.load_weights(f"{model_dir}/weights.h5")
-    with open(f"{model_dir}/history.pkl", "rb") as f:
-        tokenizer.history = pickle.load(f)
-    with open(f"{model_dir}/vocab.pkl", "rb") as f:
-        tokenizer.vocab = pickle.load(f)
-    return tokenizer

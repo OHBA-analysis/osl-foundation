@@ -9,7 +9,7 @@ from osl_dynamics.data import Data
 from osl_dynamics.utils.misc import get_argument, replace_argument
 
 from osl_foundation.models.base import BaseModel
-from osl_foundation.models.tokenizers import OSLTokenizer, load_tokenizer
+from osl_foundation.models.tokenizers import OSLTokenizer
 from osl_foundation.config.generator_config import Label
 from osl_foundation.inference.layers import (
     IdentityLayer,
@@ -566,12 +566,18 @@ class EphysGPT(BaseModel):
             return None
 
         _logger.info(f"Loaded tokenizer from {tokenizer_path}")
-        tokenizer = load_tokenizer(tokenizer_path)
+        tokenizer = OSLTokenizer.load_model(tokenizer_path)
         n_tokens = len(tokenizer.vocab["token_order"]) + 1
         _logger.info(f"Setting n_tokens to {n_tokens}")
         self.config.model_config.n_tokens = n_tokens
 
         return tokenizer
+
+    def _load_pretrained_model(self) -> tf.keras.Model:
+        pass
+
+    def _get_input_embedding_layer(self) -> tf.keras.layers.Layer:
+        pass
 
     def _build_model(self) -> tf.keras.Model:
         config = self.config.model_config
@@ -863,16 +869,18 @@ class EphysGPT(BaseModel):
         config = self.config.model_config
         input_embedding_layer = self.model.get_layer("input_embedding")
         embeddings = dict()
-        embeddings["token"] = (
-            input_embedding_layer.token_embedding_layer.embeddings.numpy()
-        )
+        embeddings[
+            "token"
+        ] = input_embedding_layer.token_embedding_layer.embeddings.numpy()
         if self.config.model_config.pos_embedding_type == "absolute":
-            embeddings["position"] = (
+            embeddings[
+                "position"
+            ] = (
                 input_embedding_layer.position_embedding_layer.position_embeddings.numpy()
             )
-        embeddings["channel"] = (
-            input_embedding_layer.channel_embedding_layer.position_embeddings.numpy()
-        )
+        embeddings[
+            "channel"
+        ] = input_embedding_layer.channel_embedding_layer.position_embeddings.numpy()
         for i, label in enumerate(config.extra_labels):
             embeddings[label.name] = input_embedding_layer.extra_embedding_layers[
                 i

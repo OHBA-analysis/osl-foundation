@@ -12,7 +12,7 @@ from osl_dynamics.data.tf import concatenate_datasets
 from osl_dynamics.inference import initializers as osld_initializers
 from osl_dynamics.utils.misc import get_argument, replace_argument
 
-from osl_foundation.config import Config
+from osl_foundation.config import Config, get_config
 from osl_foundation.utils import plotting, misc
 
 _logger = logging.getLogger("osl-foundation")
@@ -298,3 +298,57 @@ class BaseModel:
     def summary(self, **kwargs) -> None:
         """Print a summary of the model."""
         self.model.summary(**kwargs)
+
+    @staticmethod
+    def load_config(dirname: str) -> Config:
+        """
+        Load the config from a directory.
+
+        Parameters
+        ----------
+        dirname : str
+            Directory to load the configuration from.
+
+        Returns
+        -------
+        config : Config
+            Configuration object.
+        """
+        return get_config(f"{dirname}/config.yml")
+
+    @classmethod
+    def load_model(cls, dirname: str, checkpoint: str = None):
+        """
+        Load a saved model from a .h5 file or a checkpoint.
+
+        Parameters
+        ----------
+        dirname : str
+            Directory containing the saved model.
+        checkpoint : str, optional
+            Path to the checkpoint file. If `latest`, the latest checkpoint will be used.
+            Defaults to None, in which case the weights will be loaded from `weights.h5`.
+        """
+        config = cls.load_config(dirname)
+        model = cls(config)
+        if checkpoint:
+            cp = tf.train.Checkpoint(model=model.model, optimizer=model.model.optimizer)
+            if checkpoint == "latest":
+                checkpoint_path = tf.train.latest_checkpoint(f"{dirname}/checkpoints")
+            else:
+                checkpoint_path = checkpoint
+            with model.config.training_config.strategy.scope():
+                cp.restore(checkpoint_path).expect_partial()
+        else:
+            model.load_weights(f"{dirname}/weights.h5")
+
+        try:
+            with open(f"{dirname}/history.pkl", "rb") as f:
+                model.history = pickle.load(f)
+        except FileNotFoundError:
+            pass
+
+        if model.config.model_config.name == "osl_tokenizer":
+            with open(f"{dirname}/vocab.pkl", "rb") as f:
+                model.vocab = pickle.load(f)
+        return model
