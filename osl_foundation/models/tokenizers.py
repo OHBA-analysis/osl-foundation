@@ -1,6 +1,5 @@
 import os
 import logging
-from glob import glob
 from typing import Tuple, Union, List
 
 import pickle
@@ -11,12 +10,11 @@ from pqdm.threads import pqdm
 from tqdm.auto import trange, tqdm
 
 from osl_dynamics.data import Data
-from osl_dynamics.array_ops import get_one_hot
 from osl_dynamics.utils.misc import get_argument
 from osl_dynamics.utils.plotting import rough_square_axes
 
 from osl_foundation.models.base import BaseModel
-from osl_foundation.config import Config, get_config
+from osl_foundation.config import Config
 from osl_foundation.inference.layers import rnn_layer, TokenWeightsLayer, MSELossLayer
 
 _logger = logging.getLogger("osl-foundation")
@@ -135,8 +133,8 @@ class OSLTokenizer(BaseModel):
         Config object.
     """
 
-    def __init__(self, config: Config):
-        super().__init__(config)
+    def __init__(self, config: Config, strategy: tf.distribute.Strategy = None):
+        super().__init__(config, strategy)
         self.vocab = {}
 
     def build_model(self) -> None:
@@ -422,7 +420,8 @@ class OSLTokenizer(BaseModel):
                 [self.model(x, training=False)[1].numpy() for x in d]
             )
             pve = 100 * (
-                1 - np.sum((original_x - reconstructed_x) ** 2) / np.sum(original_x**2)
+                1
+                - np.sum((original_x - reconstructed_x) ** 2) / np.sum(original_x**2)
             )
             return pve
 
@@ -783,30 +782,3 @@ class OSLTokenizer(BaseModel):
                 os.makedirs(plot_dir, exist_ok=True)
                 fig.savefig(f"{plot_dir}/fitted_signal_ch{n}.png")
                 plt.close(fig)
-
-
-def load_tokenizer(model_dir: str) -> OSLTokenizer:
-    """
-    Load a tokenizer from a directory.
-
-    Parameters
-    ----------
-    model_dir : str
-        Directory containing the tokenizer model.
-
-    Returns
-    -------
-    tokenizer : OSLTokenizer
-        The loaded tokenizer.
-    """
-    config = get_config(f"{model_dir}/config.yml")
-    if config.model_config.name == "osl_tokenizer":
-        tokenizer = OSLTokenizer(config)
-    else:
-        raise NotImplementedError(f"Model {config.model_config.name} not implemented.")
-    tokenizer.load_weights(f"{model_dir}/weights.h5")
-    with open(f"{model_dir}/history.pkl", "rb") as f:
-        tokenizer.history = pickle.load(f)
-    with open(f"{model_dir}/vocab.pkl", "rb") as f:
-        tokenizer.vocab = pickle.load(f)
-    return tokenizer

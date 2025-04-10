@@ -12,7 +12,7 @@ from osl_dynamics.data.tf import concatenate_datasets
 from osl_dynamics.inference import initializers as osld_initializers
 from osl_dynamics.utils.misc import get_argument, replace_argument
 
-from osl_foundation.config import Config
+from osl_foundation.config import Config, get_config
 from osl_foundation.utils import plotting, misc
 
 _logger = logging.getLogger("osl-foundation")
@@ -29,13 +29,17 @@ class BaseModel:
         Configuration object.
     """
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, strategy: tf.distribute.Strategy = None):
         config.validate()
         self._identifier = np.random.randint(100000)
         self.config = config
         self.model: tf.keras.Model = None
         self.history: dict = None
-        with self.config.training_config.strategy.scope():
+
+        if strategy is not None:
+            config.training_config.strategy = strategy
+
+        with config.training_config.strategy.scope():
             self.build_model()
             self.compile()
 
@@ -46,10 +50,9 @@ class BaseModel:
 
     def compile(self) -> None:
         """Compile the model with the optimizer within the strategy scope."""
-        with self.config.training_config.strategy.scope():
-            self.model.compile(
-                optimizer=self.config.training_config.optimizer,
-            )
+        self.model.compile(
+            optimizer=self.config.training_config.optimizer,
+        )
 
     def make_dataset(
         self,
@@ -97,7 +100,7 @@ class BaseModel:
             # Validation
             if (
                 isinstance(
-                    self.config.training_config.strategy, tf.distribute.MirroredStrategy
+                    self.model.distribute_strategy, tf.distribute.MirroredStrategy
                 )
                 and not inputs.use_tfrecord
             ):
@@ -216,7 +219,7 @@ class BaseModel:
         model : tf.keras.Model
             Model with the loaded weights.
         """
-        with self.config.training_config.strategy.scope():
+        with self.model.distribute_strategy.scope():
             return self.model.load_weights(filepath)
 
     def reset_weights(self, keep: list = None) -> None:
@@ -227,13 +230,13 @@ class BaseModel:
         keep : list, optional
             List of names of layers to keep the weights of.
         """
-        with self.config.training_config.strategy.scope():
+        with self.model.distribute_strategy.scope():
             osld_initializers.reinitialize_model_weights(self.model, keep=keep)
 
     def reset(self) -> None:
         """Reset the model and compile it."""
         self.reset_weights()
-        with self.config.training_config.strategy.scope():
+        with self.model.distribute_strategy.scope():
             self.compile()
 
     def save_config(self, dirname: str) -> None:
@@ -298,3 +301,70 @@ class BaseModel:
     def summary(self, **kwargs) -> None:
         """Print a summary of the model."""
         self.model.summary(**kwargs)
+
+    @staticmethod
+    def load_config(dirname: str) -> Config:
+        """
+        Load the config from a directory.
+
+        Parameters
+        ----------
+        dirname : str
+            Directory to load the configuration from.
+
+        Returns
+        -------
+        config : Config
+            Configuration object.
+        """
+        return get_config(f"{dirname}/config.yml")
+
+    @classmethod
+    def load_model(
+        cls,
+        dirname: str,
+        checkpoint: str = None,
+        strategy: tf.distribute.Strategy = None,
+    ):
+        """
+        Load a saved model from a .h5 file or a checkpoint.
+
+        Parameters
+        ----------
+        dirname : str
+            Directory containing the saved model.
+        checkpoint : str, optional
+            Path to the checkpoint file. If `latest`, the latest checkpoint will be used.
+            Defaults to None, in which case the weights will be loaded from `weights.h5`.
+        strategy : tf.distribute.Strategy, optional
+            Distribution strategy to use for loading the model. Defaults to None.
+            If None, the strategy from the config will be used.
+
+        Returns
+        -------
+        model
+            Loaded model.
+        """
+        config = cls.load_config(dirname)
+        model = cls(config, strategy=strategy)
+        if checkpoint:
+            cp = tf.train.Checkpoint(model=model.model, optimizer=model.model.optimizer)
+            if checkpoint == "latest":
+                checkpoint_path = tf.train.latest_checkpoint(f"{dirname}/checkpoints")
+            else:
+                checkpoint_path = checkpoint
+            with model.model.distribute_strategy.scope():
+                cp.restore(checkpoint_path).expect_partial()
+        else:
+            model.load_weights(f"{dirname}/weights.h5")
+
+        try:
+            with open(f"{dirname}/history.pkl", "rb") as f:
+                model.history = pickle.load(f)
+        except FileNotFoundError:
+            pass
+
+        if model.config.model_config.name == "osl_tokenizer":
+            with open(f"{dirname}/vocab.pkl", "rb") as f:
+                model.vocab = pickle.load(f)
+        return model

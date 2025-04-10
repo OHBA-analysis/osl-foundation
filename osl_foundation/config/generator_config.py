@@ -28,6 +28,11 @@ class Label:
 class EphysGPTModelConfig(BaseModelConfig):
     name: str = "ephys_gpt"
 
+    # ---------- Pretrained model ---------- #
+    pretrained_model_path: str = None
+    pretrained_model_checkpoint: str = None
+    pretrained_layers: List[str] = None
+
     # ---------- Tokenizer ---------- #
     tokenizer_path: str = None
 
@@ -68,6 +73,27 @@ class EphysGPTModelConfig(BaseModelConfig):
         self._validate_decoder_parameters()
         self._validate_loss_parameters()
 
+    def _validate_pretrained_model_parameters(self) -> None:
+        if self.pretrained_model_path is not None:
+            assert isinstance(
+                self.pretrained_model_path, str
+            ), "pretrained_model_path must be a string"
+        if self.pretrained_model_checkpoint is not None:
+            assert isinstance(
+                self.pretrained_model_checkpoint, str
+            ), "pretrained_model_checkpoint must be a string"
+        if self.pretrained_layers is not None:
+            assert isinstance(
+                self.pretrained_layers, list
+            ), "pretrained_layers must be a list"
+
+        for layer in self.pretrained_layers:
+            assert isinstance(layer, str), "pretrained_layers must be a list of strings"
+            assert layer in ["input_embedding", "decoder", "prediction_head"], (
+                "pretrained_layers must be one of "
+                + "['input_embedding', 'decoder', 'prediction_head']"
+            )
+
     def _validate_tokenizer_path(self) -> None:
         if self.tokenizer_path is not None:
             assert isinstance(
@@ -84,9 +110,9 @@ class EphysGPTModelConfig(BaseModelConfig):
             assert self.n_tokens > 0, "n_tokens must be greater than 0"
         assert self.n_channels is not None, "n_channels must be set"
         VALID_POS_EMBEDDING_TYPES = ["absolute", "sinusoidal", "rope", "alibi"]
-        assert self.pos_embedding_type in VALID_POS_EMBEDDING_TYPES, (
-            f"pos_embedding_type must be one of {VALID_POS_EMBEDDING_TYPES}"
-        )
+        assert (
+            self.pos_embedding_type in VALID_POS_EMBEDDING_TYPES
+        ), f"pos_embedding_type must be one of {VALID_POS_EMBEDDING_TYPES}"
         self.extra_labels = self.extra_labels or []
 
     def _validate_decoder_parameters(self) -> None:
@@ -131,10 +157,21 @@ class EphysGPTModelConfig(BaseModelConfig):
         ), "loss_sequence_length must be less or equal to latent_sequence_length"
 
     def set_config(self, config: dict) -> None:
+        self._set_pretrained_model_parameters(config.get("pretrained_model", {}))
         self._set_tokenizer_path(config)
         self._set_input_parameters(config.get("input_parameters", {}))
         self._set_decoder_parameters(config.get("decoder_parameters", {}))
         self._set_loss_parameters(config.get("loss_parameters", {}))
+
+    def _set_pretrained_model_parameters(self, config: dict) -> None:
+        self.pretrained_model_path = config.get("model_path", None)
+        self.pretrained_model_checkpoint = config.get("checkpoint", None)
+        if self.pretrained_model_path is not None:
+            self.pretrained_layers = config.get(
+                "pretrained_layers", ["input_embedding", "decoder", "prediction_head"]
+            )
+        else:
+            self.pretrained_layers = config.get("pretrained_layers", None)
 
     def _set_tokenizer_path(self, config: dict) -> None:
         self.tokenizer_path = config.get("tokenizer_path", None)
@@ -144,9 +181,7 @@ class EphysGPTModelConfig(BaseModelConfig):
         self.n_tokens = config.get("n_tokens", 128)
         self.token_embedding_dim = config.get("token_embedding_dim", None)
         self.pos_embedding_dim = config.get("pos_embedding_dim", None)
-        self.pos_embedding_type = config.get(
-            "pos_embedding_type", "absolute"
-        )
+        self.pos_embedding_type = config.get("pos_embedding_type", "absolute")
         self.channel_embedding_dim = config.get("channel_embedding_dim", None)
         self.extra_labels = [Label(**label) for label in config.get("extra_labels", [])]
 
