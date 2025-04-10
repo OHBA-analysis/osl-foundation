@@ -25,7 +25,7 @@ data = Data(data_files)
 data.standardize()
 
 # ---------- Load generator ---------- #
-generator = load_model(generator_dir, from_checkpoint=True)
+generator = load_model(generator_dir, checkpoint="latest")
 
 # ---------- Reconstructed data from the tokenizer ---------- #
 tokens = generator.tokenizer.tokenize_data(data)

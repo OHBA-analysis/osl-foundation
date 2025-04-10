@@ -12,7 +12,7 @@ tf_ops.gpu_growth()
 generator_dir = "models/generator"
 
 # ---------- Load generator ---------- #
-generator = load_model(generator_dir, from_checkpoint=True)
+generator = load_model(generator_dir, checkpoint="latest")
 
 # ---------- Generate data using the generator ---------- #
 generated_data = generator.generate_data(
