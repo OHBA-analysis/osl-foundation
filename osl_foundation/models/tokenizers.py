@@ -1,6 +1,5 @@
 import os
 import logging
-from glob import glob
 from typing import Tuple, Union, List
 
 import pickle
@@ -11,12 +10,11 @@ from pqdm.threads import pqdm
 from tqdm.auto import trange, tqdm
 
 from osl_dynamics.data import Data
-from osl_dynamics.array_ops import get_one_hot
 from osl_dynamics.utils.misc import get_argument
 from osl_dynamics.utils.plotting import rough_square_axes
 
 from osl_foundation.models.base import BaseModel
-from osl_foundation.config import Config, get_config
+from osl_foundation.config import Config
 from osl_foundation.inference.layers import rnn_layer, TokenWeightsLayer, MSELossLayer
 
 _logger = logging.getLogger("osl-foundation")
@@ -135,8 +133,8 @@ class OSLTokenizer(BaseModel):
         Config object.
     """
 
-    def __init__(self, config: Config):
-        super().__init__(config)
+    def __init__(self, config: Config, strategy: tf.distribute.Strategy = None):
+        super().__init__(config, strategy)
         self.vocab = {}
 
     def build_model(self) -> None:

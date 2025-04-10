@@ -28,13 +28,13 @@ class Label:
 class EphysGPTModelConfig(BaseModelConfig):
     name: str = "ephys_gpt"
 
-    # ---------- Tokenizer ---------- #
-    tokenizer_path: str = None
-
     # ---------- Pretrained model ---------- #
     pretrained_model_path: str = None
     pretrained_model_checkpoint: str = None
     pretrained_layers: List[str] = None
+
+    # ---------- Tokenizer ---------- #
+    tokenizer_path: str = None
 
     # ---------- Input parameters ---------- #
     embedding_dim: int = None
@@ -72,6 +72,27 @@ class EphysGPTModelConfig(BaseModelConfig):
         self._validate_input_parameters()
         self._validate_decoder_parameters()
         self._validate_loss_parameters()
+
+    def _validate_pretrained_model_parameters(self) -> None:
+        if self.pretrained_model_path is not None:
+            assert isinstance(
+                self.pretrained_model_path, str
+            ), "pretrained_model_path must be a string"
+        if self.pretrained_model_checkpoint is not None:
+            assert isinstance(
+                self.pretrained_model_checkpoint, str
+            ), "pretrained_model_checkpoint must be a string"
+        if self.pretrained_layers is not None:
+            assert isinstance(
+                self.pretrained_layers, list
+            ), "pretrained_layers must be a list"
+
+        for layer in self.pretrained_layers:
+            assert isinstance(layer, str), "pretrained_layers must be a list of strings"
+            assert layer in ["input_embedding", "decoder", "prediction_head"], (
+                "pretrained_layers must be one of "
+                + "['input_embedding', 'decoder', 'prediction_head']"
+            )
 
     def _validate_tokenizer_path(self) -> None:
         if self.tokenizer_path is not None:
@@ -136,10 +157,21 @@ class EphysGPTModelConfig(BaseModelConfig):
         ), "loss_sequence_length must be less or equal to latent_sequence_length"
 
     def set_config(self, config: dict) -> None:
+        self._set_pretrained_model_parameters(config.get("pretrained_model", {}))
         self._set_tokenizer_path(config)
         self._set_input_parameters(config.get("input_parameters", {}))
         self._set_decoder_parameters(config.get("decoder_parameters", {}))
         self._set_loss_parameters(config.get("loss_parameters", {}))
+
+    def _set_pretrained_model_parameters(self, config: dict) -> None:
+        self.pretrained_model_path = config.get("model_path", None)
+        self.pretrained_model_checkpoint = config.get("checkpoint", None)
+        if self.pretrained_model_path is not None:
+            self.pretrained_layers = config.get(
+                "pretrained_layers", ["input_embedding", "decoder", "prediction_head"]
+            )
+        else:
+            self.pretrained_layers = config.get("pretrained_layers", None)
 
     def _set_tokenizer_path(self, config: dict) -> None:
         self.tokenizer_path = config.get("tokenizer_path", None)

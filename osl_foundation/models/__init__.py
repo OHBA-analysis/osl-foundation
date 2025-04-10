@@ -14,7 +14,11 @@ models = {
 }
 
 
-def create_model(config: Union[Config, dict, str], save_dir: str = None):
+def create_model(
+    config: Union[Config, dict, str],
+    save_dir: str = None,
+    strategy: tf.distribute.Strategy = None,
+):
     """Create a model based on the configuration.
 
     Parameters
@@ -24,6 +28,9 @@ def create_model(config: Union[Config, dict, str], save_dir: str = None):
     save_dir : str, optional
         Path to a directory where the configuration will be saved.
         Defaults to None, in which case the configuration will not be saved.
+    strategy : tf.distribute.Strategy, optional
+        TensorFlow distribution strategy for distributed training.
+        Defaults to None, in which case the config strategy will be used.
 
     Returns
     -------
@@ -42,12 +49,13 @@ def create_model(config: Union[Config, dict, str], save_dir: str = None):
             f"Options are {', '.join(models.keys())}"
         )
 
-    return models[config.model_config.name](config)
+    return models[config.model_config.name](config, strategy=strategy)
 
 
 def load_model(
     model_dir: str,
     checkpoint: str = None,
+    strategy: tf.distribute.Strategy = None,
 ):
     """Load a saved model from a directory.
 
@@ -58,6 +66,9 @@ def load_model(
     checkpoint : str, optional
         Path to the checkpoint file. If `latest`, the latest checkpoint will be used.
         Defaults to None, in which case the weights will be loaded from `weights.h5`.
+    strategy : tf.distribute.Strategy, optional
+        TensorFlow distribution strategy for distributed training.
+        Defaults to None, in which case the config strategy will be used.
 
     Returns
     -------
@@ -69,4 +80,5 @@ def load_model(
     return models[config.model_config.name].load_model(
         model_dir,
         checkpoint,
+        strategy=strategy,
     )

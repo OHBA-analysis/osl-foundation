@@ -596,7 +596,9 @@ class EphysGPT(BaseModel):
             if tokenizer_path is None:
                 return None
 
-            tokenizer = OSLTokenizer.load_model(tokenizer_path)
+            tokenizer = OSLTokenizer.load_model(
+                tokenizer_path, strategy=self.config.training_config.strategy
+            )
             _logger.info(f"Loaded tokenizer from {tokenizer_path}")
 
         n_tokens = len(tokenizer.vocab["token_order"]) + 1
@@ -605,7 +607,7 @@ class EphysGPT(BaseModel):
 
         return tokenizer
 
-    def _load_pretrained_model(self):
+    def _load_pretrained_model(self) -> tf.keras.Model:
         """Load a pretrained model."""
         pretrained_model_path = self.config.model_config.pretrained_model_path
         if pretrained_model_path is None:
@@ -615,19 +617,21 @@ class EphysGPT(BaseModel):
             self.config.model_config.pretrained_model_checkpoint
         )
         pretrained_model = EphysGPT.load_model(
-            pretrained_model_path, pretrained_model_checkpoint
+            pretrained_model_path,
+            pretrained_model_checkpoint,
+            strategy=self.config.training_config.strategy,
         )
         _logger.info(f"Loaded pretrained model from {pretrained_model_path}")
         pretrained_model.model.trainable = False
         return pretrained_model
 
     @property
-    def pretrained_layers(self):
+    def pretrained_layers(self) -> List[str]:
         if self.pretrained_model is None:
             return []
         return self.config.model_config.pretrained_layers
 
-    def _get_input_embedding_layer(self):
+    def _get_input_embedding_layer(self) -> InputEmbeddingLayer:
         config = self.config.model_config
         if "input_embedding" in self.pretrained_layers:
             pretrained_layer = self.pretrained_model.model.get_layer("input_embedding")
@@ -645,9 +649,10 @@ class EphysGPT(BaseModel):
             config.channel_embedding_dim,
             config.extra_labels,
             pretrained_layer=pretrained_layer,
+            name="input_embedding",
         )
 
-    def _get_decoder_layer(self):
+    def _get_decoder_layer(self) -> DecoderLayer:
         config = self.config.model_config
         if "decoder" in self.pretrained_layers:
             return self.pretrained_model.model.get_layer("decoder")
@@ -674,7 +679,7 @@ class EphysGPT(BaseModel):
                 name="decoder",
             )
 
-    def _get_prediction_head_layer(self):
+    def _get_prediction_head_layer(self) -> tf.keras.layers.Layer:
         config = self.config.model_config
         if "prediction_head" in self.pretrained_layers:
             return self.pretrained_model.model.get_layer("prediction_head")
@@ -898,7 +903,7 @@ class EphysGPT(BaseModel):
                 model_inputs[k] = extra_channels[k][:, i - sequence_length : i + 1]
 
             # Prediction logits for the next token
-            with self.config.training_config.strategy.scope():
+            with self.model.distribute_strategy.scope():
                 next_token = self.one_step_sample(
                     model_inputs,
                     top_p,
