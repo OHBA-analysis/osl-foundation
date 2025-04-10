@@ -6,7 +6,7 @@ import numpy as np
 from osl_dynamics.inference import tf_ops
 from osl_dynamics.data import Data
 
-from osl_foundation.models.tokenizers import load_tokenizer
+from osl_foundation import load_model
 
 tf_ops.gpu_growth()
 
@@ -28,7 +28,7 @@ data = Data(
 )
 data.standardize()
 
-tokenizer = load_tokenizer(tokenizer_dir)
+tokenizer = load_model(tokenizer_dir)
 tokenized_data = tokenizer.tokenize_data(data)
 
 for i, token_data in enumerate(tokenized_data):

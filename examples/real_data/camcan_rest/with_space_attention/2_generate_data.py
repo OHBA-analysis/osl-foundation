@@ -13,7 +13,7 @@ tf_ops.gpu_growth()
 set_random_seed(42)
 
 generator_dir = f"models/generator"
-generator = load_model(generator_dir, from_checkpoint=True)
+generator = load_model(generator_dir, checkpoint="latest")
 
 n_sessions = 612
 batch_size = 32
