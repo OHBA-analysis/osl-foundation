@@ -420,8 +420,7 @@ class OSLTokenizer(BaseModel):
                 [self.model(x, training=False)[1].numpy() for x in d]
             )
             pve = 100 * (
-                1
-                - np.sum((original_x - reconstructed_x) ** 2) / np.sum(original_x**2)
+                1 - np.sum((original_x - reconstructed_x) ** 2) / np.sum(original_x**2)
             )
             return pve
 
@@ -782,3 +781,183 @@ class OSLTokenizer(BaseModel):
                 os.makedirs(plot_dir, exist_ok=True)
                 fig.savefig(f"{plot_dir}/fitted_signal_ch{n}.png")
                 plt.close(fig)
+
+
+class MuTransformTokenizer:
+    def __init__(self, n_tokens, mu=255):
+        self.n_tokens = n_tokens
+        self.mu = mu
+        self.data_range = None
+        self.bins = None
+        self.bins_average = None
+
+    def fit(self, x: Union[Data, np.ndarray, List[np.ndarray]]) -> None:
+        if isinstance(x, Data):
+            x = x.time_series(concatenate=False)
+
+        if not isinstance(x, list):
+            x = [x]
+
+        self.data_range = self.get_data_range(x)
+        self.bins = self.get_bins()
+        self.bins_average = self.get_bins_average()
+
+    def get_data_range(
+        self, data: Union[np.ndarray, List[np.ndarray]]
+    ) -> Tuple[float, float]:
+
+        if not isinstance(data, list):
+            data = [data]
+
+        min_ = np.inf
+        max_ = -np.inf
+        for x in tqdm(data, desc="Calculating data range", total=len(data)):
+            min_ = min(min_, np.min(x))
+            max_ = max(max_, np.max(x))
+
+        return min_, max_
+
+    def normalize(self, x: np.ndarray) -> np.ndarray:
+        """
+        Normalise data to the range of (-1, 1).
+        """
+        if self.data_range is None:
+            raise ValueError("Data range is not set. Call fit() first.")
+
+        min_, max_ = self.data_range
+        x = (x - min_) / (max_ - min_)
+        x = 2 * x - 1
+        return x
+
+    def reverse_normalize(self, x: np.ndarray) -> np.ndarray:
+        """
+        Denormalise data to the original range.
+        """
+        if self.data_range is None:
+            raise ValueError("Data range is not set. Call fit() first.")
+
+        min_, max_ = self.data_range
+        x = (x + 1) / 2
+        x = x * (max_ - min_) + min_
+        return x
+
+    def mu_transform(self, x: np.ndarray) -> np.ndarray:
+        return np.sign(x) * np.log1p(np.abs(x) * self.mu) / np.log1p(self.mu)
+
+    def reverse_mu_transform(self, x: np.ndarray) -> np.ndarray:
+        return np.sign(x) * (np.expm1(np.abs(x) * np.log1p(self.mu)) / self.mu)
+
+    def _get_bins(self) -> np.ndarray:
+        n_tokens = self.n_tokens
+
+        # tokens 0 and n_tokens are for values < -1 and >= 1
+        # the rest n_tokens - 2 are for values in between
+        # the bins are equally spaced in the range of (-1, 1)
+
+        bins = np.linspace(-1, 1, n_tokens - 1)
+        return bins
+
+    def get_bins(self) -> np.ndarray:
+        bins = self._get_bins()
+        bins = self.reverse_mu_transform(bins)
+        bins = self.reverse_normalize(bins)
+        return bins
+
+    def _get_bins_average(self) -> np.ndarray:
+        bins = self._get_bins()
+        bins_average = np.zeros(len(bins) + 1)
+        bins_average[0] = -1
+        bins_average[-1] = 1
+
+        # Calculate the average of each bin
+        for i in range(len(bins) - 1):
+            bins_average[i + 1] = (bins[i] + bins[i + 1]) / 2
+        return bins_average
+
+    def get_bins_average(self) -> np.ndarray:
+        bins_average = self._get_bins_average()
+        bins_average = self.reverse_mu_transform(bins_average)
+        bins_average = self.reverse_normalize(bins_average)
+        return bins_average
+
+    def tokenize_data(
+        self,
+        data: Union[Data, np.ndarray, List[np.ndarray]],
+        concatenate: bool = False,
+        n_jobs: int = 1,
+    ) -> Union[np.ndarray, List[np.ndarray]]:
+        if isinstance(data, Data):
+            dataset = data.time_series(concatenate=False)
+
+        if not isinstance(data, list):
+            dataset = [data]
+
+        def _tokenize_data_per_session(d):
+            return np.digitize(d, self.bins)
+
+        # Keywords for parallel processing
+        kwargs = [{"d": d} for d in dataset]
+        if len(dataset) == 1:
+            _logger.info("Tokenizing data...")
+            tokens = [_tokenize_data_per_session(**kwargs[0])]
+
+        elif n_jobs == 1:
+            tokens = []
+            for i in trange(len(dataset), desc="Tokenizing data"):
+                tokens.append(_tokenize_data_per_session(**kwargs[i]))
+
+        else:
+            tokens = pqdm(
+                kwargs,
+                _tokenize_data_per_session,
+                n_jobs=n_jobs,
+                desc="Tokenizing data",
+                argument_type="kwargs",
+                exception_behaviour="immediate",
+            )
+
+        if concatenate or len(tokens) == 1:
+            tokens = np.concatenate(tokens)
+
+        return tokens
+
+    def reconstruct_data(
+        self,
+        tokens: Union[Data, np.ndarray, List[np.ndarray]],
+        concatenate: bool = False,
+        n_jobs: int = 1,
+    ) -> Union[np.ndarray, List[np.ndarray]]:
+        if isinstance(tokens, Data):
+            tokens = tokens.time_series(concatenate=False)
+
+        if not isinstance(tokens, list):
+            tokens = [tokens]
+
+        def _reconstruct_data_per_session(t):
+            x = self.bins_average[t]
+            return x
+
+        # Keywords for parallel processing
+        kwargs = [{"t": t} for t in tokens]
+        if len(tokens) == 1:
+            _logger.info("Reconstructing data...")
+            reconstructed_data = [_reconstruct_data_per_session(**kwargs[0])]
+
+        elif n_jobs == 1:
+            reconstructed_data = []
+            for i in trange(len(tokens), desc="Reconstructing data"):
+                reconstructed_data.append(_reconstruct_data_per_session(**kwargs[i]))
+
+        else:
+            reconstructed_data = pqdm(
+                kwargs,
+                _reconstruct_data_per_session,
+                n_jobs=n_jobs,
+                desc="Reconstructing data",
+                argument_type="kwargs",
+                exception_behaviour="immediate",
+            )
+
+        if concatenate or len(reconstructed_data) == 1:
+            reconstructed_data = np.concatenate(reconstructed_data)
+        return reconstructed_data
