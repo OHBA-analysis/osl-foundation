@@ -16,6 +16,7 @@ from osl_dynamics.utils.plotting import rough_square_axes
 from osl_foundation.models.base import BaseModel
 from osl_foundation.config import Config
 from osl_foundation.inference.layers import rnn_layer, TokenWeightsLayer, MSELossLayer
+from osl_foundation.utils import plotting
 
 _logger = logging.getLogger("osl-foundation")
 
@@ -625,20 +626,7 @@ class OSLTokenizer(BaseModel):
         """
         # Calculate PVEs across all sessions
         pves = self.get_pve(data)
-
-        # Plot a histogram of PVEs
-        fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(8, 6))
-        axes.hist(pves, bins=20, color="skyblue", edgecolor="black")
-        axes.set_xlabel("PVE (%)")
-        axes.set_ylabel("Number of Sessions")
-        axes.set_title(
-            "Percentage of Variance Explained (Avg: {:.2f}%)".format(pves.mean())
-        )
-        plt.tight_layout()
-        if plot_dir is not None:
-            os.makedirs(plot_dir, exist_ok=True)
-            fig.savefig(f"{plot_dir}/pve_histogram.png")
-            plt.close(fig)
+        plotting.plot_pve(pve=pves, plot_dir=plot_dir)
 
     def plot_token_counts(self, data: Data = None, plot_dir: str = None) -> None:
         """
@@ -887,23 +875,23 @@ class MuTransformTokenizer:
         n_jobs: int = 1,
     ) -> Union[np.ndarray, List[np.ndarray]]:
         if isinstance(data, Data):
-            dataset = data.time_series(concatenate=False)
+            data = data.time_series(concatenate=False)
 
         if not isinstance(data, list):
-            dataset = [data]
+            data = [data]
 
         def _tokenize_data_per_session(d):
             return np.digitize(d, self.bins)
 
         # Keywords for parallel processing
-        kwargs = [{"d": d} for d in dataset]
-        if len(dataset) == 1:
+        kwargs = [{"d": d} for d in data]
+        if len(data) == 1:
             _logger.info("Tokenizing data...")
             tokens = [_tokenize_data_per_session(**kwargs[0])]
 
         elif n_jobs == 1:
             tokens = []
-            for i in trange(len(dataset), desc="Tokenizing data"):
+            for i in trange(len(data), desc="Tokenizing data"):
                 tokens.append(_tokenize_data_per_session(**kwargs[i]))
 
         else:
@@ -961,3 +949,106 @@ class MuTransformTokenizer:
         if concatenate or len(reconstructed_data) == 1:
             reconstructed_data = np.concatenate(reconstructed_data)
         return reconstructed_data
+
+    def get_pve(
+        self, data: Union[Data, np.ndarray, List[np.ndarray]], n_jobs: int = 1
+    ) -> np.ndarray:
+        """
+        Get the percentage of variance explained by the tokens.
+
+        Parameters
+        ----------
+        data : osl_dynamics.data.Data
+            Time series data.
+        n_jobs : int, optional
+            Number of jobs to run in parallel, by default 1.
+
+        Returns
+        -------
+        pve : np.ndarray
+            The percentage of variance explained by the tokens for each session.
+        """
+        if isinstance(data, Data):
+            data = data.time_series(concatenate=False)
+        if not isinstance(data, list):
+            data = [data]
+
+        tokens = self.tokenize_data(data, n_jobs=n_jobs)
+        reconstructed_data = self.reconstruct_data(tokens, n_jobs=n_jobs)
+
+        if not isinstance(reconstructed_data, list):
+            reconstructed_data = [reconstructed_data]
+
+        pve = []
+        for i in range(len(data)):
+            original_x = data[i]
+            reconstructed_x = reconstructed_data[i]
+            pve.append(
+                100
+                * (
+                    1
+                    - np.sum((original_x - reconstructed_x) ** 2)
+                    / np.sum(original_x**2)
+                )
+            )
+
+        if len(pve) == 1:
+            pve = pve[0]
+        return np.array(pve)
+
+    def plot_fitted_signal(
+        self, data_path: str, ground_truth_path: str = None, plot_dir: str = None
+    ) -> None:
+        """
+        Plots a signal reconstructed from tokenized data
+
+        Parameters
+        ----------
+        data_path : str
+            A path to a file containing the original data.
+        ground_truth_path : str, optional
+            A path to a file containing the ground truth data.
+        plot_dir : str, optional
+            Directory to save the plot.
+        """
+
+        def _load_and_normalize_data(file_path, tmp_dir):
+            """Load and normalize data from a given path."""
+
+            # Define anonymous function
+            normalize = lambda x: (x - np.mean(x, axis=0)) / np.std(x, axis=0)
+
+            # Get data
+            dataset = Data(file_path, store_dir=tmp_dir)
+            data = normalize(dataset.arrays[0])
+            dataset.delete_dir()  # delete temporary directory
+            return data
+
+        # Get simulated data and its ground truth
+        original_data = _load_and_normalize_data(data_path, "tmp_org_data")
+        if ground_truth_path:
+            true_data = _load_and_normalize_data(ground_truth_path, "tmp_true_data")
+
+        # Get data reconstructed from tokens
+        tokenized_data = self.tokenize_data(original_data)
+        fitted_data = self.reconstruct_data(tokenized_data)
+
+        # Plot data signals and token weights
+        n_channels = min(original_data.shape[1], 3)  # number of channels to plot
+        start_idx, end_idx = 200, 500  # start and end indices to plot
+
+        fig, axes = plt.subplots(nrows=n_channels, ncols=1, figsize=(20, 12))
+        for i in range(n_channels):
+            axes[i].plot(original_data[start_idx:end_idx, i], label="Original")
+            if ground_truth_path:
+                axes[i].plot(true_data[start_idx:end_idx, i], label="True")
+            axes[i].plot(fitted_data[start_idx:end_idx, i], label="Fitted")
+            axes[i].set_title(f"Channel {i}: Data Signals")
+            for j in range(len(self.bins)):
+                axes[i].axhline(self.bins[j], color="red", linestyle="--", linewidth=1)
+            axes[i].legend()
+        plt.tight_layout()
+        if plot_dir:
+            os.makedirs(plot_dir, exist_ok=True)
+            fig.savefig(f"{plot_dir}/fitted_signal.png")
+            plt.close(fig)
