@@ -997,7 +997,11 @@ class MuTransformTokenizer:
         return np.array(pve)
 
     def plot_fitted_signal(
-        self, data_path: str, ground_truth_path: str = None, plot_dir: str = None
+        self,
+        data_path: str,
+        ground_truth_path: str = None,
+        plot_bins: bool = False,
+        plot_dir: str = None,
     ) -> None:
         """
         Plots a signal reconstructed from tokenized data
@@ -1008,6 +1012,8 @@ class MuTransformTokenizer:
             A path to a file containing the original data.
         ground_truth_path : str, optional
             A path to a file containing the ground truth data.
+        plot_bins : bool, optional
+            Whether to plot the bins, by default False.
         plot_dir : str, optional
             Directory to save the plot.
         """
@@ -1044,8 +1050,11 @@ class MuTransformTokenizer:
                 axes[i].plot(true_data[start_idx:end_idx, i], label="True")
             axes[i].plot(fitted_data[start_idx:end_idx, i], label="Fitted")
             axes[i].set_title(f"Channel {i}: Data Signals")
-            for j in range(len(self.bins)):
-                axes[i].axhline(self.bins[j], color="red", linestyle="--", linewidth=1)
+            if plot_bins:
+                for j in range(len(self.bins)):
+                    axes[i].axhline(
+                        self.bins[j], color="red", linestyle="--", linewidth=1
+                    )
             axes[i].legend()
         plt.tight_layout()
         if plot_dir:
