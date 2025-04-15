@@ -14,7 +14,7 @@ from osl_dynamics.utils.misc import get_argument
 from osl_dynamics.utils.plotting import rough_square_axes
 
 from osl_foundation.models.base import BaseModel
-from osl_foundation.config import Config
+from osl_foundation.config import Config, get_config
 from osl_foundation.inference.layers import rnn_layer, TokenWeightsLayer, MSELossLayer
 from osl_foundation.utils import plotting
 
@@ -772,9 +772,18 @@ class OSLTokenizer(BaseModel):
 
 
 class MuTransformTokenizer:
-    def __init__(self, n_tokens, mu=255):
-        self.n_tokens = n_tokens
-        self.mu = mu
+    def __init__(self, config: Config, strategy: tf.distribute.Strategy = None):
+        """
+        MuTransformTokenizer class.
+
+        Parameters
+        ----------
+        config : Config
+            Configuration object.
+        strategy : tf.distribute.Strategy
+            For API compatibility, not used.
+        """
+        self.config = config
         self.data_range = None
         self.bins = None
         self.bins_average = None
@@ -789,6 +798,38 @@ class MuTransformTokenizer:
         self.data_range = self.get_data_range(x)
         self.bins = self.get_bins()
         self.bins_average = self.get_bins_average()
+
+    def save_config(self, dirname: str) -> None:
+        """
+        Save the config to a directory.
+        The config is saved as a YAML file as 'config.yml'.
+
+        Parameters
+        ----------
+        dirname : str
+            Directory to save the configuration.
+        """
+        self.config.save_config(dirname)
+
+    def save(self, dirname: str) -> None:
+        """Save the model config and attributes.
+
+        Parameters
+        ----------
+        dirname : str
+            Directory to save the model.
+        """
+        os.makedirs(dirname, exist_ok=True)
+        self.save_config(dirname)
+        with open(f"{dirname}/weights.pkl", "wb") as f:
+            pickle.dump(
+                {
+                    "data_range": self.data_range,
+                    "bins": self.bins,
+                    "bins_average": self.bins_average,
+                },
+                f,
+            )
 
     def get_data_range(
         self, data: Union[np.ndarray, List[np.ndarray]]
@@ -830,13 +871,15 @@ class MuTransformTokenizer:
         return x
 
     def mu_transform(self, x: np.ndarray) -> np.ndarray:
-        return np.sign(x) * np.log1p(np.abs(x) * self.mu) / np.log1p(self.mu)
+        mu = self.config.model_config.mu
+        return np.sign(x) * np.log1p(np.abs(x) * mu) / np.log1p(mu)
 
     def reverse_mu_transform(self, x: np.ndarray) -> np.ndarray:
-        return np.sign(x) * (np.expm1(np.abs(x) * np.log1p(self.mu)) / self.mu)
+        mu = self.config.model_config.mu
+        return np.sign(x) * (np.expm1(np.abs(x) * np.log1p(mu)) / mu)
 
     def _get_bins(self) -> np.ndarray:
-        n_tokens = self.n_tokens
+        n_tokens = self.config.model_config.n_tokens
 
         # tokens 0 and n_tokens are for values < -1 and >= 1
         # the rest n_tokens - 2 are for values in between
@@ -1061,3 +1104,53 @@ class MuTransformTokenizer:
             os.makedirs(plot_dir, exist_ok=True)
             fig.savefig(f"{plot_dir}/fitted_signal.png")
             plt.close(fig)
+
+    @staticmethod
+    def load_config(dirname: str) -> Config:
+        """
+        Load the config from a directory.
+
+        Parameters
+        ----------
+        dirname : str
+            Directory to load the configuration from.
+
+        Returns
+        -------
+        config : Config
+            Configuration object.
+        """
+        return get_config(f"{dirname}/config.yml")
+
+    @classmethod
+    def load_model(
+        cls,
+        dirname: str,
+        checkpoint: str = None,
+        strategy: tf.distribute.Strategy = None,
+    ):
+        """
+        Load a saved model.
+
+        Parameters
+        ----------
+        dirname : str
+            Directory containing the saved model.
+        checkpoint : str
+            For API compatibility, not used.
+        strategy : tf.distribute.Strategy
+            For API compatibility, not used.
+
+        Returns
+        -------
+        model : MuTransformTokenizer
+            The loaded model.
+        """
+        config = cls.load_config(dirname)
+        with open(f"{dirname}/weights.pkl", "rb") as f:
+            weights = pickle.load(f)
+        model = cls(config)
+        model.data_range = weights["data_range"]
+        model.bins = weights["bins"]
+        model.bins_average = weights["bins_average"]
+        return model

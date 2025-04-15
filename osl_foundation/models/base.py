@@ -263,9 +263,15 @@ class BaseModel:
         with open(f"{dirname}/history.pkl", "wb") as f:
             pickle.dump(self.history, f)
 
+    def save_weights(self, dirname: str) -> None:
+        """
+        Wrapper for :code:`tf.keras.Model.save_weights()`.
+        """
+        self.model.save_weights(f"{dirname}/weights.h5")
+
     def save(self, dirname: str) -> None:
         """
-        Save the model config and weights to a directory.
+        Save the model config and weights.
 
         Parameters
         ----------
@@ -283,7 +289,7 @@ class BaseModel:
             for cb in self.config.training_config.callbacks
         )
         if not saved_best:
-            self.model.save_weights(f"{dirname}/weights.h5")
+            self.save_weights(f"{dirname}/weights.h5")
 
     def plot_history(self, **kwargs) -> Union[None, Tuple[plt.Figure, List[plt.Axes]]]:
         """Plot the training history. This is a wrapper for the
