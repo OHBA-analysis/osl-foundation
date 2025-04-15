@@ -23,7 +23,10 @@ from osl_foundation.inference.callbacks import (
     SpaceAttentionAnnealingCallback,
 )
 from osl_foundation.config.base import BaseTrainingConfig, BaseModelConfig
-from osl_foundation.config.tokenizer_config import OSLTokenizerModelConfig
+from osl_foundation.config.tokenizer_config import (
+    OSLTokenizerModelConfig,
+    MuTransformTokenizerModelConfig,
+)
 from osl_foundation.config.generator_config import EphysGPTModelConfig
 
 
@@ -46,6 +49,7 @@ class Config:
         BaseModelConfig,
         OSLTokenizerModelConfig,
         EphysGPTModelConfig,
+        MuTransformTokenizerModelConfig,
     ] = None
     training_config: BaseTrainingConfig = None
     config_dict: dict = None
@@ -53,6 +57,9 @@ class Config:
     def validate(self) -> None:
         """Validate the config."""
         self.model_config.validate()
+        if self.model_config.name == "mu_transform_tokenizer":
+            # mu transform tokenizer does not have a training config
+            return
         self.training_config.validate()
 
     def set_model_config(self, model_config: dict) -> None:
@@ -73,6 +80,8 @@ class Config:
         training_config : dict
             Dictionary representation of the training config.
         """
+        if not training_config:
+            return
         self.training_config = get_training_config(training_config)
 
     def set_config_dict(self, config_dict: dict):
@@ -122,7 +131,7 @@ def get_config(configuration: Union[dict, str] = None) -> Config:
     config_dict = load_config(configuration)
     config = Config()
     config.set_model_config(config_dict["model_config"])
-    config.set_training_config(config_dict["training_config"])
+    config.set_training_config(config_dict.get("training_config", {}))
     config.set_config_dict(config_dict)
     config.validate()
     return config
@@ -227,7 +236,12 @@ def get_training_config(config: dict) -> BaseTrainingConfig:
 
 def get_model_config(
     config: dict,
-) -> Union[BaseModelConfig, OSLTokenizerModelConfig, EphysGPTModelConfig]:
+) -> Union[
+    BaseModelConfig,
+    OSLTokenizerModelConfig,
+    EphysGPTModelConfig,
+    MuTransformTokenizerModelConfig,
+]:
     """
     Get a model config object from a dictionary.
 
@@ -241,30 +255,25 @@ def get_model_config(
     model_config : Union[BaseModelConfig, OSLTokenizerModelConfig]
         Model config object.
     """
-
-    # Helper functions
-    def _set_osl_tokenizer_config(model_config: OSLTokenizerModelConfig) -> None:
-        model_config.set_config(config)
-
-    def _set_ephys_gpt_config(model_config: EphysGPTModelConfig) -> None:
-        model_config.set_config(config)
+    MODEL_CONFIGS = {
+        "osl_tokenizer": OSLTokenizerModelConfig,
+        "ephys_gpt": EphysGPTModelConfig,
+        "mu_transform_tokenizer": MuTransformTokenizerModelConfig,
+    }
 
     name = config.get("name", None)
     if name is None:
         raise ValueError("config must contain a 'name' key")
-    elif name == "osl_tokenizer":
-        model_config = OSLTokenizerModelConfig()
-        model_config.set_n_channels(config.get("n_channels", None))
-        model_config.set_sequence_length(config.get("sequence_length", 256))
-        _set_osl_tokenizer_config(model_config)
-    elif name == "ephys_gpt":
-        model_config = EphysGPTModelConfig()
-        model_config.set_n_channels(config.get("n_channels", None))
-        model_config.set_sequence_length(config.get("sequence_length", 256))
-        _set_ephys_gpt_config(model_config)
-    else:
-        raise NotImplementedError(f"Model config for {name} is not implemented")
+    if name not in MODEL_CONFIGS:
+        raise ValueError(
+            f"Model config {name} not implemented. "
+            f"Options are {', '.join(MODEL_CONFIGS.keys())}"
+        )
 
-    # Set sequence length
+    model_config = MODEL_CONFIGS[name]()
+    if name == "osl_tokenizer" or name == "ephys_gpt":
+        model_config.set_n_channels(config.get("n_channels", None))
+        model_config.set_sequence_length(config.get("sequence_length", 256))
+    model_config.set_config(config)
 
     return model_config

@@ -5,11 +5,12 @@ import tensorflow as tf
 
 from osl_foundation.config import Config, get_config
 
-from osl_foundation.models.tokenizers import OSLTokenizer
+from osl_foundation.models.tokenizers import OSLTokenizer, MuTransformTokenizer
 from osl_foundation.models.ephys_gpt import EphysGPT
 
 models = {
     "osl_tokenizer": OSLTokenizer,
+    "mu_transform_tokenizer": MuTransformTokenizer,
     "ephys_gpt": EphysGPT,
 }
 

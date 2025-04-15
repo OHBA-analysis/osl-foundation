@@ -9,7 +9,8 @@ from osl_dynamics.data import Data
 from osl_dynamics.utils.misc import get_argument, replace_argument
 
 from osl_foundation.models.base import BaseModel
-from osl_foundation.models.tokenizers import OSLTokenizer
+from osl_foundation.config import get_config
+from osl_foundation.models.tokenizers import OSLTokenizer, MuTransformTokenizer
 from osl_foundation.config.generator_config import Label
 from osl_foundation.inference.layers import (
     IdentityLayer,
@@ -592,16 +593,32 @@ class EphysGPT(BaseModel):
         if self.pretrained_model is not None:
             tokenizer = self.pretrained_model.tokenizer
         else:
+            TOKENIZERS = {
+                "osl_tokenizer": OSLTokenizer,
+                "mu_transform_tokenizer": MuTransformTokenizer,
+            }
             tokenizer_path = self.config.model_config.tokenizer_path
             if tokenizer_path is None:
                 return None
 
-            tokenizer = OSLTokenizer.load_model(
+            tokenizer_config = get_config(f"{tokenizer_path}/config.yml")
+            tokenizer_name = tokenizer_config.model_config.name
+            if tokenizer_name not in TOKENIZERS:
+                raise ValueError(
+                    f"Tokenizer {tokenizer_name} not supported."
+                    + f"Supported tokenizers are: {list(TOKENIZERS.keys())}"
+                )
+
+            tokenizer = TOKENIZERS[tokenizer_name].load_model(
                 tokenizer_path, strategy=self.config.training_config.strategy
             )
             _logger.info(f"Loaded tokenizer from {tokenizer_path}")
 
-        n_tokens = len(tokenizer.vocab["token_order"]) + 1
+        if isinstance(tokenizer, OSLTokenizer):
+            n_tokens = len(tokenizer.vocab["token_order"]) + 1
+        else:
+            n_tokens = tokenizer_config.model_config.n_tokens
+
         _logger.info(f"Setting n_tokens to {n_tokens}")
         self.config.model_config.n_tokens = n_tokens
 
@@ -828,10 +845,14 @@ class EphysGPT(BaseModel):
         # ---------- Helper functions ---------- #
         def _random_tokens() -> np.ndarray:
             _rng = np.random.default_rng()
-
-            token_weights = self.tokenizer.vocab["total_token_counts"].astype(
-                np.float32
-            )
+            try:
+                token_weights = self.tokenizer.vocab["total_token_counts"].astype(
+                    np.float32
+                )
+            except AttributeError:
+                token_weights = np.ones(
+                    self.config.model_config.n_tokens, dtype=np.float32
+                )
             token_weights /= np.sum(token_weights)
 
             tokens = (
@@ -945,18 +966,16 @@ class EphysGPT(BaseModel):
         config = self.config.model_config
         input_embedding_layer = self.model.get_layer("input_embedding")
         embeddings = dict()
-        embeddings[
-            "token"
-        ] = input_embedding_layer.token_embedding_layer.embeddings.numpy()
+        embeddings["token"] = (
+            input_embedding_layer.token_embedding_layer.embeddings.numpy()
+        )
         if self.config.model_config.pos_embedding_type == "absolute":
-            embeddings[
-                "position"
-            ] = (
+            embeddings["position"] = (
                 input_embedding_layer.position_embedding_layer.position_embeddings.numpy()
             )
-        embeddings[
-            "channel"
-        ] = input_embedding_layer.channel_embedding_layer.position_embeddings.numpy()
+        embeddings["channel"] = (
+            input_embedding_layer.channel_embedding_layer.position_embeddings.numpy()
+        )
         for i, label in enumerate(config.extra_labels):
             embeddings[label.name] = input_embedding_layer.extra_embedding_layers[
                 i

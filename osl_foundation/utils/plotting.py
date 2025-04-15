@@ -1,4 +1,5 @@
 from typing import List, Tuple, Union
+import os
 
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -344,7 +345,42 @@ def plot_history(
     ax1.set_xlim((epoch_start - 1, epoch_end + 1))
 
     if plot_dir is not None:
+        os.makedirs(plot_dir, exist_ok=True)
         fig.savefig(f"{plot_dir}/history.png")
         plt.close(fig)
     else:
         return fig, [ax1, ax2]
+
+
+def plot_pve(
+    pve: np.ndarray, plot_dir: str = None
+) -> Union[None, Tuple[plt.Figure, plt.Axes]]:
+    """Plot the proportion of variance explained (PVE).
+
+    Parameters
+    ----------
+    pve : np.ndarray
+        Proportion of variance explained.
+    plot_dir : str, optional
+        Directory to save the plot.
+
+    Returns
+    -------
+    fig : plt.Figure
+        Figure object.
+    ax : plt.Axes
+        Axes object.
+    """
+    # Plot a histogram of PVEs
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(8, 6))
+    ax.hist(pve, bins=20, color="skyblue", edgecolor="black")
+    ax.set_xlabel("PVE (%)")
+    ax.set_ylabel("Number of Sessions")
+    ax.set_title("Percentage of Variance Explained (Avg: {:.2f}%)".format(pve.mean()))
+    plt.tight_layout()
+    if plot_dir is not None:
+        os.makedirs(plot_dir, exist_ok=True)
+        fig.savefig(f"{plot_dir}/pve_histogram.png")
+        plt.close(fig)
+    else:
+        return fig, ax
