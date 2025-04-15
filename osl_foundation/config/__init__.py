@@ -271,9 +271,9 @@ def get_model_config(
         )
 
     model_config = MODEL_CONFIGS[name]()
-    model_config.set_config(config)
     if name == "osl_tokenizer" or name == "ephys_gpt":
         model_config.set_n_channels(config.get("n_channels", None))
         model_config.set_sequence_length(config.get("sequence_length", 256))
+    model_config.set_config(config)
 
     return model_config

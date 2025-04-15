@@ -9,7 +9,8 @@ from osl_dynamics.data import Data
 from osl_dynamics.utils.misc import get_argument, replace_argument
 
 from osl_foundation.models.base import BaseModel
-from osl_foundation.models.tokenizers import OSLTokenizer
+from osl_foundation.config import get_config
+from osl_foundation.models.tokenizers import OSLTokenizer, MuTransformTokenizer
 from osl_foundation.config.generator_config import Label
 from osl_foundation.inference.layers import (
     IdentityLayer,
@@ -592,16 +593,32 @@ class EphysGPT(BaseModel):
         if self.pretrained_model is not None:
             tokenizer = self.pretrained_model.tokenizer
         else:
+            TOKENIZERS = {
+                "osl_tokenizer": OSLTokenizer,
+                "mu_transform_tokenizer": MuTransformTokenizer,
+            }
             tokenizer_path = self.config.model_config.tokenizer_path
             if tokenizer_path is None:
                 return None
 
-            tokenizer = OSLTokenizer.load_model(
+            tokenizer_config = get_config(f"{tokenizer_path}/config.yml")
+            tokenizer_name = tokenizer_config.model_config.name
+            if tokenizer_name not in TOKENIZERS:
+                raise ValueError(
+                    f"Tokenizer {tokenizer_name} not supported."
+                    + f"Supported tokenizers are: {list(TOKENIZERS.keys())}"
+                )
+
+            tokenizer = TOKENIZERS[tokenizer_name].load_model(
                 tokenizer_path, strategy=self.config.training_config.strategy
             )
             _logger.info(f"Loaded tokenizer from {tokenizer_path}")
 
-        n_tokens = len(tokenizer.vocab["token_order"]) + 1
+        if isinstance(tokenizer, OSLTokenizer):
+            n_tokens = len(tokenizer.vocab["token_order"]) + 1
+        else:
+            n_tokens = tokenizer_config.model_config.n_tokens
+
         _logger.info(f"Setting n_tokens to {n_tokens}")
         self.config.model_config.n_tokens = n_tokens
 
