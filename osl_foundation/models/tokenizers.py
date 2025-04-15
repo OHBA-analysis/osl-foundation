@@ -784,9 +784,7 @@ class MuTransformTokenizer:
             For API compatibility, not used.
         """
         self.config = config
-        self.data_range = None
-        self.bins = None
-        self.bins_average = None
+        self.vocab = {}
 
     def fit(self, x: Union[Data, np.ndarray, List[np.ndarray]]) -> None:
         if isinstance(x, Data):
@@ -795,9 +793,27 @@ class MuTransformTokenizer:
         if not isinstance(x, list):
             x = [x]
 
-        self.data_range = self.get_data_range(x)
-        self.bins = self.get_bins()
-        self.bins_average = self.get_bins_average()
+        self.vocab["data_range"] = self.get_data_range(x)
+        self.vocab["bins"] = self.get_bins()
+        self.vocab["bins_average"] = self.get_bins_average()
+        self.vocab["total_token_counts"] = self.get_token_counts(x)
+
+    def get_token_counts(
+        self, data: Union[Data, np.ndarray, List[np.ndarray]]
+    ) -> np.ndarray:
+        """
+        Get the token counts for the given data.
+
+        Parameters
+        ----------
+        data : Union[Data, np.ndarray, List[np.ndarray]]
+            The data to get token counts for.
+        """
+        tokens = self.tokenize_data(data, concatenate=True)
+        token_counts = np.bincount(
+            tokens.flatten(), minlength=self.config.model_config.n_tokens
+        )
+        return token_counts
 
     def save_config(self, dirname: str) -> None:
         """
@@ -821,15 +837,8 @@ class MuTransformTokenizer:
         """
         os.makedirs(dirname, exist_ok=True)
         self.save_config(dirname)
-        with open(f"{dirname}/weights.pkl", "wb") as f:
-            pickle.dump(
-                {
-                    "data_range": self.data_range,
-                    "bins": self.bins,
-                    "bins_average": self.bins_average,
-                },
-                f,
-            )
+        with open(f"{dirname}/vocab.pkl", "wb") as f:
+            pickle.dump(self.vocab, f)
 
     def get_data_range(
         self, data: Union[np.ndarray, List[np.ndarray]]
@@ -850,10 +859,10 @@ class MuTransformTokenizer:
         """
         Normalise data to the range of (-1, 1).
         """
-        if self.data_range is None:
+        if self.vocab["data_range"] is None:
             raise ValueError("Data range is not set. Call fit() first.")
 
-        min_, max_ = self.data_range
+        min_, max_ = self.vocab["data_range"]
         x = (x - min_) / (max_ - min_)
         x = 2 * x - 1
         return x
@@ -862,10 +871,10 @@ class MuTransformTokenizer:
         """
         Denormalise data to the original range.
         """
-        if self.data_range is None:
+        if self.vocab["data_range"] is None:
             raise ValueError("Data range is not set. Call fit() first.")
 
-        min_, max_ = self.data_range
+        min_, max_ = self.vocab["data_range"]
         x = (x + 1) / 2
         x = x * (max_ - min_) + min_
         return x
@@ -924,7 +933,7 @@ class MuTransformTokenizer:
             data = [data]
 
         def _tokenize_data_per_session(d):
-            return np.digitize(d, self.bins)
+            return np.digitize(d, self.vocab["bins"])
 
         # Keywords for parallel processing
         kwargs = [{"d": d} for d in data]
@@ -965,7 +974,7 @@ class MuTransformTokenizer:
             tokens = [tokens]
 
         def _reconstruct_data_per_session(t):
-            x = self.bins_average[t]
+            x = self.vocab["bins_average"][t]
             return x
 
         # Keywords for parallel processing
@@ -1094,9 +1103,9 @@ class MuTransformTokenizer:
             axes[i].plot(fitted_data[start_idx:end_idx, i], label="Fitted")
             axes[i].set_title(f"Channel {i}: Data Signals")
             if plot_bins:
-                for j in range(len(self.bins)):
+                for j in range(len(self.vocab["bins"])):
                     axes[i].axhline(
-                        self.bins[j], color="red", linestyle="--", linewidth=1
+                        self.vocab["bins"][j], color="red", linestyle="--", linewidth=1
                     )
             axes[i].legend()
         plt.tight_layout()
@@ -1147,10 +1156,7 @@ class MuTransformTokenizer:
             The loaded model.
         """
         config = cls.load_config(dirname)
-        with open(f"{dirname}/weights.pkl", "rb") as f:
-            weights = pickle.load(f)
         model = cls(config)
-        model.data_range = weights["data_range"]
-        model.bins = weights["bins"]
-        model.bins_average = weights["bins_average"]
+        with open(f"{dirname}/vocab.pkl", "rb") as f:
+            model.vocab = pickle.load(f)
         return model
