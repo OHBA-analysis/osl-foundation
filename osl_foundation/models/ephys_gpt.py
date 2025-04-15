@@ -828,10 +828,14 @@ class EphysGPT(BaseModel):
         # ---------- Helper functions ---------- #
         def _random_tokens() -> np.ndarray:
             _rng = np.random.default_rng()
-
-            token_weights = self.tokenizer.vocab["total_token_counts"].astype(
-                np.float32
-            )
+            try:
+                token_weights = self.tokenizer.vocab["total_token_counts"].astype(
+                    np.float32
+                )
+            except AttributeError:
+                token_weights = np.ones(
+                    self.config.model_config.n_tokens, dtype=np.float32
+                )
             token_weights /= np.sum(token_weights)
 
             tokens = (
@@ -945,18 +949,16 @@ class EphysGPT(BaseModel):
         config = self.config.model_config
         input_embedding_layer = self.model.get_layer("input_embedding")
         embeddings = dict()
-        embeddings[
-            "token"
-        ] = input_embedding_layer.token_embedding_layer.embeddings.numpy()
+        embeddings["token"] = (
+            input_embedding_layer.token_embedding_layer.embeddings.numpy()
+        )
         if self.config.model_config.pos_embedding_type == "absolute":
-            embeddings[
-                "position"
-            ] = (
+            embeddings["position"] = (
                 input_embedding_layer.position_embedding_layer.position_embeddings.numpy()
             )
-        embeddings[
-            "channel"
-        ] = input_embedding_layer.channel_embedding_layer.position_embeddings.numpy()
+        embeddings["channel"] = (
+            input_embedding_layer.channel_embedding_layer.position_embeddings.numpy()
+        )
         for i, label in enumerate(config.extra_labels):
             embeddings[label.name] = input_embedding_layer.extra_embedding_layers[
                 i
