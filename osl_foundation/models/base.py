@@ -289,7 +289,7 @@ class BaseModel:
             for cb in self.config.training_config.callbacks
         )
         if not saved_best:
-            self.save_weights(f"{dirname}/weights.h5")
+            self.save_weights(dirname)
 
     def plot_history(self, **kwargs) -> Union[None, Tuple[plt.Figure, List[plt.Axes]]]:
         """Plot the training history. This is a wrapper for the
