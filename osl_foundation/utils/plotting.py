@@ -164,8 +164,8 @@ def plot_aec(
 
     def _get_aec(data: Data) -> np.ndarray:
         data.prepare(methods)
-        ts = data.time_series(concatenate=True)
-        aec = static.functional_connectivity(ts)
+        ts = data.time_series()
+        aec = np.mean(static.functional_connectivity(ts), axis=0)
         return aec - np.eye(aec.shape[0])
 
     if axes is None:
