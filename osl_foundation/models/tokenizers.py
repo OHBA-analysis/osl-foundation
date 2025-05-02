@@ -863,8 +863,12 @@ class MuTransformTokenizer:
             raise ValueError("Data range is not set. Call fit() first.")
 
         min_, max_ = self.vocab["data_range"]
-        x = (x - min_) / (max_ - min_)
-        x = 2 * x - 1
+        if self.config.model_config.normalization == "max_abs":
+            max_abs = max(abs(min_), abs(max_))
+            x /= max_abs
+        else:
+            x = (x - min_) / (max_ - min_)
+            x = 2 * x - 1
         return x
 
     def reverse_normalize(self, x: np.ndarray) -> np.ndarray:
@@ -875,8 +879,12 @@ class MuTransformTokenizer:
             raise ValueError("Data range is not set. Call fit() first.")
 
         min_, max_ = self.vocab["data_range"]
-        x = (x + 1) / 2
-        x = x * (max_ - min_) + min_
+        if self.config.model_config.normalization == "max_abs":
+            max_abs = max(abs(min_), abs(max_))
+            x *= max_abs
+        else:
+            x = (x + 1) / 2
+            x = x * (max_ - min_) + min_
         return x
 
     def mu_transform(self, x: np.ndarray) -> np.ndarray:
