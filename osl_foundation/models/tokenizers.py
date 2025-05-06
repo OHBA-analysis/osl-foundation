@@ -863,8 +863,12 @@ class MuTransformTokenizer:
             raise ValueError("Data range is not set. Call fit() first.")
 
         min_, max_ = self.vocab["data_range"]
-        x = (x - min_) / (max_ - min_)
-        x = 2 * x - 1
+        if self.config.model_config.normalization == "max_abs":
+            max_abs = max(abs(min_), abs(max_))
+            x /= max_abs
+        else:
+            x = (x - min_) / (max_ - min_)
+            x = 2 * x - 1
         return x
 
     def reverse_normalize(self, x: np.ndarray) -> np.ndarray:
@@ -875,8 +879,12 @@ class MuTransformTokenizer:
             raise ValueError("Data range is not set. Call fit() first.")
 
         min_, max_ = self.vocab["data_range"]
-        x = (x + 1) / 2
-        x = x * (max_ - min_) + min_
+        if self.config.model_config.normalization == "max_abs":
+            max_abs = max(abs(min_), abs(max_))
+            x *= max_abs
+        else:
+            x = (x + 1) / 2
+            x = x * (max_ - min_) + min_
         return x
 
     def mu_transform(self, x: np.ndarray) -> np.ndarray:
@@ -1047,6 +1055,52 @@ class MuTransformTokenizer:
         if len(pve) == 1:
             pve = pve[0]
         return np.array(pve)
+    
+    def plot_pve(self, data: Data, plot_dir: str = None) -> None:
+        """
+        Plots a histogram of the percentage of variance explained by the tokens.
+
+        Parameters
+        ----------
+        data : osl_dynamics.data.Data
+            Time series data.
+        plot_dir : str, optional
+            Directory to save the plot.
+        """
+        # Calculate PVEs across all sessions
+        pves = self.get_pve(data)
+        plotting.plot_pve(pve=pves, plot_dir=plot_dir)
+
+    def plot_token_counts(self, data: Data, plot_dir: str = None) -> None:
+        """
+        Plots a histogram of token counts over all sessions.
+
+        Parameters
+        ----------
+        data : osl_dynamics.data.Data, optional
+            Time series data for refactoring tokens.
+        plot_dir : str, optional
+            Directory to save the plot.
+        """
+        total_token_counts = self.get_token_counts(data)
+
+        # Plot a histogram of token counts
+        fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(8, 6))
+        axes.bar(
+            range(1, total_token_counts.shape[0] + 1),
+            total_token_counts,
+            color="skyblue",
+            edgecolor="black",
+        )
+        axes.set_xlabel("Token Index")
+        axes.set_ylabel("Number of Occurrences")
+        axes.set_title(f"Token Histogram (N={len(total_token_counts)})")
+        plt.tight_layout()
+
+        if plot_dir is not None:
+            os.makedirs(plot_dir, exist_ok=True)
+            fig.savefig(f"{plot_dir}/token_counts.png")
+            plt.close(fig)
 
     def plot_fitted_signal(
         self,

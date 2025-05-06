@@ -41,12 +41,15 @@ class MuTransformTokenizerModelConfig:
     name: str = "mu_transform_tokenizer"
     n_tokens: int = None
     mu: int = None
+    normalization: str = "max_abs"
 
     def validate(self) -> None:
         assert self.n_tokens is not None, "n_tokens must be set"
         assert self.mu is not None, "mu must be set"
         assert self.mu > 0, "mu must be greater than 0"
         assert self.n_tokens > 0, "n_tokens must be greater than 0"
+        assert self.normalization in ["max_abs", "min_max"], \
+        "normalization must be 'max_abs' or 'min_max'"
 
     def set_config(self, config: dict) -> None:
         self.n_tokens = config.get("n_tokens", 64)
