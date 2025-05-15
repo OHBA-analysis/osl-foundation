@@ -291,8 +291,7 @@ if __name__ == "__main__":
     os.makedirs(save_dir, exist_ok=True)
 
     load = False
-    # feature_types = ["tde", "spectral", "spatial", "spatial_spectral"]
-    feature_types = ["tde"]
+    feature_types = ["tde", "spectral", "spatial", "spatial_spectral"]
     metrics = ["correlation", "cosine", "euclidean"]
 
     # Get the covariance matrices

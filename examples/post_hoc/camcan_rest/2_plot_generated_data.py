@@ -159,6 +159,12 @@ def plot_connectivity(data, plot_dir):
 
 
 if __name__ == "__main__":
+    """
+    Plot summary of generated data.
+    - Power spectral density (PSD)
+    - Static power maps for different frequency bands
+    - Static functional connectivity for different frequency bands
+    """
     plot_dir = "results/plots/summary"
 
     # Load generated data
