@@ -6,14 +6,17 @@ import tensorflow as tf
 import numpy as np
 import yaml
 
-if version.parse(tf.__version__) < version.parse("2.13"):
-    from tensorflow.python.distribute.distribution_strategy_context import get_strategy
-elif version.parse(tf.__version__) < version.parse("2.16"):
-    from tensorflow.python.distribute.distribute_lib import get_strategy
+if version.parse(tf.__version__) >= version.parse("2.16"):
+    # Use public API
+    get_strategy = tf.distribute.get_strategy
 else:
-    raise ImportError(
-        f"Unsupported TensorFlow version: {tf.__version__}. Please use <= 2.15."
-    )
+    # Use private fall-backs for historical releases
+    try:  # 2.13 - 2.15
+        from tensorflow.python.distribute.distribute_lib import get_strategy
+    except ImportError:  # < 2.13
+        from tensorflow.python.distribute.distribution_strategy_context import (
+            get_strategy,
+        )
 
 from osl_dynamics.config_api.pipeline import load_config
 
@@ -137,6 +140,23 @@ def get_config(configuration: Union[dict, str] = None) -> Config:
     return config
 
 
+def _deserialize_optimizer(opt_config: dict) -> tf.keras.optimizers.Optimizer:
+    """Try the modern Keras 3 namespace first,
+       then fall back to the legacy namespace.
+
+    Parameters
+    ----------
+    opt_config : dict
+        Dictionary representation of the optimizer config.
+    """
+    try:
+        # Attempt to use the Keras 3 namespace
+        return tf.keras.optimizers.get(opt_config)
+    except (ValueError, TypeError):
+        # Fallback to the legacy namespace
+        return tf.keras.optimizers.legacy.get(opt_config)
+
+
 def get_training_config(config: dict) -> BaseTrainingConfig:
     """
     Get a training config object from a dictionary.
@@ -154,18 +174,20 @@ def get_training_config(config: dict) -> BaseTrainingConfig:
     training_config = BaseTrainingConfig()
 
     # Set optimizer
-    if "optimizer" in config:
-        optimizer_name = config["optimizer"].get("name", "adam")
-        learning_rate = config["optimizer"].get("learning_rate", 0.001)
-        clip_norm = config["optimizer"].get("clip_norm", None)
-        optimizer = tf.keras.optimizers.get(
-            {
-                "class_name": optimizer_name.lower(),
-                "config": {"learning_rate": learning_rate, "clipnorm": clip_norm},
-            }
-        )
-    else:
-        optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+    opt_cfg = config.get("optimizer", {})
+    optimizer_name = opt_cfg.get("name", "adam")
+    learning_rate = opt_cfg.get("learning_rate", 1e-3)
+    clip_norm = opt_cfg.get("clip_norm", None)
+
+    opt_config = {
+        "class_name": optimizer_name.lower(),
+        "config": {
+            "learning_rate": learning_rate,
+            **({"clipnorm": clip_norm} if clip_norm is not None else {}),
+        },
+    }
+    
+    optimizer = _deserialize_optimizer(opt_config)
     training_config.set_optimizer(optimizer)
 
     # Set batch size
@@ -175,10 +197,9 @@ def get_training_config(config: dict) -> BaseTrainingConfig:
     training_config.set_n_epochs(config.get("n_epochs", 10))
 
     # Set strategy
-    if not config.get("multi_gpu", False):
-        training_config.set_strategy(get_strategy())
-    else:
-        training_config.set_strategy(tf.distribute.MirroredStrategy())
+    strategy = (get_strategy() if not config.get("multi_gpu", False)
+                else tf.distribute.MirroredStrategy())
+    training_config.set_strategy(strategy)
 
     # Set callbacks
     callbacks = []
@@ -214,7 +235,7 @@ def get_training_config(config: dict) -> BaseTrainingConfig:
         lr_decay = config["lr_decay"]
         callbacks.append(
             tf.keras.callbacks.LearningRateScheduler(
-                lambda epoch, lr: learning_rate * np.exp(-lr_decay * epoch)
+                lambda epoch, lr: float(learning_rate) * np.exp(-lr_decay * epoch)
             )
         )
 

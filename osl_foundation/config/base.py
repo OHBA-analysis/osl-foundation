@@ -5,14 +5,17 @@ from abc import abstractmethod
 
 import tensorflow as tf
 
-if version.parse(tf.__version__) < version.parse("2.13"):
-    from tensorflow.python.distribute.distribution_strategy_context import get_strategy
-elif version.parse(tf.__version__) < version.parse("2.16"):
-    from tensorflow.python.distribute.distribute_lib import get_strategy
+if version.parse(tf.__version__) >= version.parse("2.16"):
+    # Use public API
+    get_strategy = tf.distribute.get_strategy
 else:
-    raise ImportError(
-        f"Unsupported TensorFlow version: {tf.__version__}. Please use <= 2.15."
-    )
+    # Use private fall-backs for historical releases
+    try:  # 2.13 - 2.15
+        from tensorflow.python.distribute.distribute_lib import get_strategy
+    except ImportError:  # < 2.13
+        from tensorflow.python.distribute.distribution_strategy_context import (
+            get_strategy,
+        )
 
 
 @dataclass
