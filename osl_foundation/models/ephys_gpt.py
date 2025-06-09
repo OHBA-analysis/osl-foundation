@@ -63,6 +63,15 @@ class CrossEntropyLossLayer(tf.keras.layers.Layer):
         self.loss_sequence_length = loss_sequence_length
         self.top_k = top_k or [1]
 
+        for k in self.top_k:
+            setattr(
+                self,
+                f"top_{k}",
+                tf.keras.metrics.SparseTopKCategoricalAccuracy(
+                    k=k, name=f"top_{k}"
+                ),
+            )
+
     def call(self, inputs, **kwargs):
         y_pred, y_true = inputs
         # y_true.shape = (batch_size, sequence_length, n_channels)
@@ -77,12 +86,10 @@ class CrossEntropyLossLayer(tf.keras.layers.Layer):
         loss = tf.keras.metrics.sparse_categorical_crossentropy(
             y_true, y_pred, from_logits=True
         )
+        loss = tf.reduce_mean(loss)
         self.add_loss(loss)
         for k in self.top_k:
-            accuracy = tf.keras.metrics.sparse_top_k_categorical_accuracy(
-                y_true, y_pred, k=k
-            )
-            self.add_metric(accuracy, name=f"top_{k}")
+            getattr(self, f"top_{k}").update_state(y_true, y_pred)
 
         return tf.expand_dims(loss, -1), y_pred
 
@@ -341,6 +348,7 @@ class DecoderLayer(tf.keras.layers.Layer):
     ):
         super().__init__(**kwargs)
         self.n_layers = n_layers
+        self.model_dim = model_dim
 
         # ---------- Initialize layers ----------
 
@@ -398,6 +406,31 @@ class DecoderLayer(tf.keras.layers.Layer):
             )
             for _ in range(n_layers)
         ]
+
+    def build(self, input_shape):
+        # Build the projection and dropout layers
+        self.input_projection_layer.build(input_shape)
+        self.input_dropout_layer.build(input_shape)
+
+        # Build the attention, normalization, and feed-forward layers
+        proj_shape = list(input_shape)
+        proj_shape[-1] = self.model_dim 
+
+        for (att, att_drop, norm1, norm2, ff) in zip(
+            self.attention_layers,
+            self.attention_dropout_layers,
+            self.normalization_layers_1,
+            self.normalization_layers_2,
+            self.feed_forward_layers,
+        ):
+            att.build(proj_shape)
+            att_drop.build(proj_shape)
+            norm1.build(proj_shape)
+            norm2.build(proj_shape)
+            ff.build(proj_shape)
+
+        # Set the built flag to True
+        super().build(input_shape)
 
     def call(self, inputs, training=None, **kwargs):
         # inputs.shape = (batch_size, sequence_length, n_channels, embedding_dim)
@@ -757,11 +790,15 @@ class EphysGPT(BaseModel):
 
         # Calculate the loss
         loss, y_pred = loss_layer([y_pred, y_true])
+    
+        # ---------- Create Model ---------- #
+        inputs = {"data": data}
+        for i, label in enumerate(config.extra_labels):
+            inputs[label.name] = extra_labels[i]
+        outputs = {"loss": loss, "y_pred": y_pred}
+        name = config.name
 
-        # ---------- Model ---------- #
-        return tf.keras.Model(
-            inputs=[data] + extra_labels, outputs=[loss, y_pred], name="ephys_gpt"
-        )
+        return tf.keras.Model(inputs=inputs, outputs=outputs, name=name)
 
     @tf.function
     def one_step_sample(
@@ -791,7 +828,7 @@ class EphysGPT(BaseModel):
             The sampled tokens. Shape: (*batch_dims).
         """
         output = self.model(inputs, training=False)
-        logits = output[1][:, -1] / temperature
+        logits = output["y_pred"][:, -1] / temperature
         return sample_from_logits(logits, top_p, top_k)
 
     def generate_tokens(
