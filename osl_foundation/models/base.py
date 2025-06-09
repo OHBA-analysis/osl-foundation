@@ -220,6 +220,8 @@ class BaseModel:
             Model with the loaded weights.
         """
         with self.model.distribute_strategy.scope():
+            opt = self.model.optimizer
+            opt.build(self.model.trainable_variables)
             return self.model.load_weights(filepath)
 
     def reset_weights(self, keep: list = None) -> None:
@@ -267,7 +269,7 @@ class BaseModel:
         """
         Wrapper for :code:`tf.keras.Model.save_weights()`.
         """
-        self.model.save_weights(f"{dirname}/weights.h5")
+        self.model.save_weights(f"{dirname}/model.weights.h5")
 
     def save(self, dirname: str) -> None:
         """
@@ -362,7 +364,7 @@ class BaseModel:
             with model.model.distribute_strategy.scope():
                 cp.restore(checkpoint_path).expect_partial()
         else:
-            model.load_weights(f"{dirname}/weights.h5")
+            model.load_weights(f"{dirname}/model.weights.h5")
 
         try:
             with open(f"{dirname}/history.pkl", "rb") as f:
