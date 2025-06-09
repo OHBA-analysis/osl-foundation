@@ -290,7 +290,7 @@ def plot_history(
         History dictionary
     plot_dir : str, optional
         Directory to save the plot.
-    keyword : List[str], optional
+    keywords : List[str], optional
         List of keywords to filter the history. If None, all history
         will be plotted.
     epoch_range : tuple, optional
