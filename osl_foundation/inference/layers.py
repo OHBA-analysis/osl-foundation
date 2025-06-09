@@ -461,6 +461,13 @@ class NormalizationLayer(tf.keras.layers.Layer):
         else:
             raise ValueError(f"Unknown normalization type: {norm_type}")
 
+    def build(self, input_shape):
+        # Build the normalization layer
+        self.norm_layer.build(input_shape)
+        
+        # Set the built flag to True
+        super().build(input_shape)
+
     def call(self, inputs, **kwargs):
         return self.norm_layer(inputs)
 
@@ -581,7 +588,7 @@ class TimeAttentionLayer(tf.keras.layers.Layer):
         return output
 
 
-class ChannelAttention(tf.keras.layers.Layer):
+class ChannelAttentionLayer(tf.keras.layers.Layer):
     """
     Layer for performing channel attention.
 
@@ -721,7 +728,7 @@ class PASSTALayer(tf.keras.layers.Layer):
         self.time_attention_mask = self._compute_time_attention_mask()
 
         # Channel attention layer
-        self.channel_attention_layer = ChannelAttention(key_dim)
+        self.channel_attention_layer = ChannelAttentionLayer(key_dim)
 
         # Channel attention dropouts
         self.channel_attention_dropout = tf.Variable(
@@ -784,35 +791,57 @@ class PASSTALayer(tf.keras.layers.Layer):
             Shape: (n_channels, n_channels).
             If None, full attention is applied.
         """
-        if self.channel_attention_dropout < 1.0:
+        # Define constants
+        eye = tf.eye(self.n_channels, dtype=tf.float32)
+        off_diag = 1.0 - eye
+        zeros = tf.zeros_like(eye)
+        
+        def _apply_channel_attention():
             # We apply channel attention dropout only during training
             if not training:
-                return tf.zeros((self.n_channels, self.n_channels), dtype=tf.float32)
+                return zeros
             else:
                 uniform_sampler = tfp.distributions.Uniform()
 
-                # Sample whether to apply channel attention
-                if uniform_sampler.sample() < self.channel_attention_dropout:
+                return tf.cond(
+                    # Sample whether to apply channel attention
+                    uniform_sampler.sample() < self.channel_attention_dropout,
                     # Does not apply channel attention and mask all off-diagonal elements
-                    mask = 1 - np.eye(self.n_channels)
-                    return tf.constant(mask, dtype=tf.float32)
+                    true_fn=lambda: off_diag, 
+                    false_fn=lambda: tf.cond(
+                        # Sample whether to apply within-channel attention
+                        uniform_sampler.sample() < self.within_channel_attention_dropout,
+                        # Does not apply within-channel attention and mask all diagonal elements
+                        true_fn=lambda: eye,
+                        # Apply channel attention and does not mask any elements, return None
+                        false_fn=lambda: zeros,
+                    ),
+                )
 
-                # Sample whether to apply within-channel attention
-                elif uniform_sampler.sample() < self.within_channel_attention_dropout:
-                    # Does not apply within-channel attention and mask all diagonal elements
-                    mask = np.eye(self.n_channels)
-                    return tf.constant(mask, dtype=tf.float32)
-
-                # Apply channel attention and does not mask any elements, return None
-                else:
-                    return tf.zeros(
-                        (self.n_channels, self.n_channels), dtype=tf.float32
-                    )
-        else:
+        def _no_channel_attention():
             # If channel_attention_dropout >= 1.0, no channel attention is applied
             # Mask all off-diagonal elements
-            mask = 1 - np.eye(self.n_channels)
-            return tf.constant(mask, dtype=tf.float32)
+            return off_diag
+        
+        mask = tf.cond(
+            self.channel_attention_dropout >= 1.0,
+            _no_channel_attention,  # dropout disabled
+            _apply_channel_attention,  # apply channel attention
+        )
+
+        return mask
+
+    def build(self, input_shape):
+        q_shape, k_shape, v_shape, c_q_shape, c_k_shape = input_shape
+        
+        # Build time-attention sub-layer
+        self.time_attention_layer.build([q_shape, k_shape, v_shape])
+
+        # Build channel-attention sub-layer
+        self.channel_attention_layer.build([c_q_shape, c_k_shape, v_shape])
+
+        # Set the built flag to True
+        super().build(input_shape)
 
     def call(self, inputs, training=None, **kwargs):
         # ---------- Unpack Inputs ---------- #
@@ -1019,6 +1048,46 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         # x.shape: (batch_size, latent_sequence_length, n_channels, model_dim)
 
         return x
+    
+    def build(self, input_shape):
+        # Define input shape
+        _, _, n_channels, model_dim = input_shape
+
+        # Build patch projection layer
+        self.patch_projection.build(
+            (None, self.n_patches, self.n_channels, self.key_dim, self.n_heads * self.patch_length)
+        )
+
+        # Build input projection layers
+        self.time_patched_projection.build((None, self.n_patches, n_channels, model_dim))
+        self.time_unpatched_projection.build((None, self.unpatched_length, n_channels, model_dim))
+        self.time_query_projection.build((None, self.latent_sequence_length, n_channels, model_dim))
+        self.channel_projection.build((None, self.latent_sequence_length, n_channels, model_dim))
+
+        # Build the PASSTA Layer
+        q_c_shape = (
+            None,
+            self.n_heads,
+            self.latent_sequence_length,
+            n_channels,
+            self.key_dim,
+        )  # shape for q, c_q, and c_k
+        
+        k_v_shape = (
+            None,
+            self.n_heads,
+            self.n_patches + self.unpatched_length,
+            n_channels,
+            self.key_dim,
+        )  # shape for k and v
+
+        self.passta_layer.build([q_c_shape, k_v_shape, k_v_shape, q_c_shape, q_c_shape])
+
+        # Build output projection layer
+        self.output_projection.build((None, self.latent_sequence_length, self.n_channels, model_dim))
+
+        # Set the built flag to True
+        super().build(input_shape)
 
     def call(self, inputs, training=None, **kwargs):
         x = inputs
