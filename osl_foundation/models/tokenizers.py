@@ -1,3 +1,4 @@
+import copy
 import os
 import logging
 from typing import Tuple, Union, List
@@ -193,12 +194,12 @@ class OSLTokenizer(BaseModel):
 
         # ---------- Forward Pass ---------- #
 
-        inputs = tf.keras.layers.Input(
+        data = tf.keras.layers.Input(
             shape=(config.sequence_length, config.n_channels), name="data"
         )
         # Shape: (batch_size, sequence_length, n_channels)
 
-        encoder_output = encoder_layer(inputs)
+        encoder_output = encoder_layer(data)
         # Shape: (batch_size * n_channels, sequence_length, rnn_n_units)
 
         token_weights = token_weights_layer(encoder_output)
@@ -208,17 +209,22 @@ class OSLTokenizer(BaseModel):
         # reconstructed_data.shape = (batch_size, sequence_length, n_channels)
         # token_weights.shape = (batch_size, sequence_length, n_channels, n_tokens)
 
-        mse_loss = mse_loss_layer(inputs, reconstructed_data)
+        mse_loss = mse_loss_layer(data, reconstructed_data)
 
-        return tf.keras.Model(
-            inputs=inputs,
-            outputs=[mse_loss, reconstructed_data, token_weights],
-            name=config.name,
-        )
+        # ---------- Create Model ---------- #
+        inputs = {"data": data}
+        outputs = {
+            "mse_loss": mse_loss,
+            "reconstructed_data": reconstructed_data,
+            "token_weights": token_weights,
+        }
+        name = config.name
+
+        return tf.keras.Model(inputs=inputs, outputs=outputs, name=name)
 
     def _tokenize_data(
         self,
-        data: Data,
+        data: Union[Data, np.ndarray],
         concatenate: bool = False,
         return_weights: bool = False,
         n_jobs: int = 1,
@@ -231,7 +237,7 @@ class OSLTokenizer(BaseModel):
 
         Parameters
         ----------
-        data : osl_dynamics.data.Data
+        data : Union[osl_dynamics.data.Data, np.ndarray]
             The data to tokenize.
         concatenate : bool, optional
             Whether to concatenate the tokens over all sessions, by default False.
@@ -250,11 +256,17 @@ class OSLTokenizer(BaseModel):
             Shape is (n_samples, n_channels, n_tokens).
         """
 
-        dataset = self.make_dataset(data, shuffle=False, concatenate=False)
+        if isinstance(data, np.ndarray):
+            dataset = self.make_dataset(data, shuffle=False, concatenate=False)
+        else:
+            raw_data = copy.deepcopy(data)
+            raw_data.session_labels = {}
+            raw_data.extra_channels = {}  # remove extra channels to be compatible with model structure
+            dataset = self.make_dataset(raw_data, shuffle=False, concatenate=False)
 
         def _tokenize_data_per_session(d):
             # Tokenize for a single session
-            tw = np.concatenate([self.model(x, training=False)[2].numpy() for x in d])
+            tw = np.concatenate([self.model(x, training=False)["token_weights"].numpy() for x in d])
 
             # Concatenate over sequences
             tw = np.concatenate(tw)
@@ -418,7 +430,7 @@ class OSLTokenizer(BaseModel):
             # PVE for a single session
             original_x = np.concatenate([x["data"].numpy() for x in d])
             reconstructed_x = np.concatenate(
-                [self.model(x, training=False)[1].numpy() for x in d]
+                [self.model(x, training=False)["reconstructed_data"].numpy() for x in d]
             )
             pve = 100 * (
                 1 - np.sum((original_x - reconstructed_x) ** 2) / np.sum(original_x**2)
