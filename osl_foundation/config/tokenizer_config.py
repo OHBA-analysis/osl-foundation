@@ -54,3 +54,17 @@ class MuTransformTokenizerModelConfig:
     def set_config(self, config: dict) -> None:
         self.n_tokens = config.get("n_tokens", 64)
         self.mu = config.get("mu", 255)
+
+@dataclass
+class StandardQuantileTokenizerModelConfig:
+    name: str = "standard_quantile_tokenizer"
+    n_tokens: int = None
+    standardize: bool = None
+
+    def validate(self) -> None:
+        assert self.n_tokens is not None, "n_tokens must be set"
+        assert self.n_tokens > 0, "n_tokens must be greater than 0"
+
+    def set_config(self, config: dict) -> None:
+        self.n_tokens = config.get("n_tokens", 64)
+        self.standardize = config.get("standardize", True)

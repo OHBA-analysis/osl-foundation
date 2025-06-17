@@ -26,6 +26,7 @@ from osl_foundation.config.base import BaseTrainingConfig, BaseModelConfig
 from osl_foundation.config.tokenizer_config import (
     OSLTokenizerModelConfig,
     MuTransformTokenizerModelConfig,
+    StandardQuantileTokenizerModelConfig,
 )
 from osl_foundation.config.generator_config import EphysGPTModelConfig
 
@@ -50,6 +51,7 @@ class Config:
         OSLTokenizerModelConfig,
         EphysGPTModelConfig,
         MuTransformTokenizerModelConfig,
+        StandardQuantileTokenizerModelConfig,
     ] = None
     training_config: BaseTrainingConfig = None
     config_dict: dict = None
@@ -57,8 +59,11 @@ class Config:
     def validate(self) -> None:
         """Validate the config."""
         self.model_config.validate()
-        if self.model_config.name == "mu_transform_tokenizer":
-            # mu transform tokenizer does not have a training config
+        if any(
+            name in self.model_config.name
+            for name in ["mu_transform", "standard_quantile"]
+        ):
+            # non-learnable tokenizer does not have a training config
             return
         self.training_config.validate()
 
@@ -241,6 +246,7 @@ def get_model_config(
     OSLTokenizerModelConfig,
     EphysGPTModelConfig,
     MuTransformTokenizerModelConfig,
+    StandardQuantileTokenizerModelConfig,
 ]:
     """
     Get a model config object from a dictionary.
@@ -259,6 +265,7 @@ def get_model_config(
         "osl_tokenizer": OSLTokenizerModelConfig,
         "ephys_gpt": EphysGPTModelConfig,
         "mu_transform_tokenizer": MuTransformTokenizerModelConfig,
+        "standard_quantile_tokenizer": StandardQuantileTokenizerModelConfig,
     }
 
     name = config.get("name", None)
