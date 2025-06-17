@@ -10,7 +10,11 @@ from osl_dynamics.utils.misc import get_argument, replace_argument
 
 from osl_foundation.models.base import BaseModel
 from osl_foundation.config import get_config
-from osl_foundation.models.tokenizers import OSLTokenizer, MuTransformTokenizer
+from osl_foundation.models.tokenizers import (
+    OSLTokenizer,
+    MuTransformTokenizer,
+    StandardQuantileTokenizer,
+)
 from osl_foundation.config.generator_config import Label
 from osl_foundation.inference.layers import (
     IdentityLayer,
@@ -596,6 +600,7 @@ class EphysGPT(BaseModel):
             TOKENIZERS = {
                 "osl_tokenizer": OSLTokenizer,
                 "mu_transform_tokenizer": MuTransformTokenizer,
+                "standard_quantile_tokenizer": StandardQuantileTokenizer,
             }
             tokenizer_path = self.config.model_config.tokenizer_path
             if tokenizer_path is None:

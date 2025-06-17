@@ -6,6 +6,7 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
+import tensorflow_probability as tfp
 from pqdm.threads import pqdm
 from tqdm.auto import trange, tqdm
 
@@ -898,7 +899,7 @@ class MuTransformTokenizer:
     def _get_bins(self) -> np.ndarray:
         n_tokens = self.config.model_config.n_tokens
 
-        # tokens 0 and n_tokens are for values < -1 and >= 1
+        # tokens 0 and n_tokens - 1 are for values < -1 and >= 1
         # the rest n_tokens - 2 are for values in between
         # the bins are equally spaced in the range of (-1, 1)
 
@@ -982,6 +983,419 @@ class MuTransformTokenizer:
             tokens = [tokens]
 
         def _reconstruct_data_per_session(t):
+            x = self.vocab["bins_average"][t]
+            return x
+
+        # Keywords for parallel processing
+        kwargs = [{"t": t} for t in tokens]
+        if len(tokens) == 1:
+            _logger.info("Reconstructing data...")
+            reconstructed_data = [_reconstruct_data_per_session(**kwargs[0])]
+
+        elif n_jobs == 1:
+            reconstructed_data = []
+            for i in trange(len(tokens), desc="Reconstructing data"):
+                reconstructed_data.append(_reconstruct_data_per_session(**kwargs[i]))
+
+        else:
+            reconstructed_data = pqdm(
+                kwargs,
+                _reconstruct_data_per_session,
+                n_jobs=n_jobs,
+                desc="Reconstructing data",
+                argument_type="kwargs",
+                exception_behaviour="immediate",
+            )
+
+        if concatenate or len(reconstructed_data) == 1:
+            reconstructed_data = np.concatenate(reconstructed_data)
+        return reconstructed_data
+
+    def get_pve(
+        self, data: Union[Data, np.ndarray, List[np.ndarray]], n_jobs: int = 1
+    ) -> np.ndarray:
+        """
+        Get the percentage of variance explained by the tokens.
+
+        Parameters
+        ----------
+        data : osl_dynamics.data.Data
+            Time series data.
+        n_jobs : int, optional
+            Number of jobs to run in parallel, by default 1.
+
+        Returns
+        -------
+        pve : np.ndarray
+            The percentage of variance explained by the tokens for each session.
+        """
+        if isinstance(data, Data):
+            data = data.time_series(concatenate=False)
+        if not isinstance(data, list):
+            data = [data]
+
+        tokens = self.tokenize_data(data, n_jobs=n_jobs)
+        reconstructed_data = self.reconstruct_data(tokens, n_jobs=n_jobs)
+
+        if not isinstance(reconstructed_data, list):
+            reconstructed_data = [reconstructed_data]
+
+        pve = []
+        for i in range(len(data)):
+            original_x = data[i]
+            reconstructed_x = reconstructed_data[i]
+            pve.append(
+                100
+                * (
+                    1
+                    - np.sum((original_x - reconstructed_x) ** 2)
+                    / np.sum(original_x**2)
+                )
+            )
+
+        if len(pve) == 1:
+            pve = pve[0]
+        return np.array(pve)
+    
+    def plot_pve(self, data: Data, plot_dir: str = None) -> None:
+        """
+        Plots a histogram of the percentage of variance explained by the tokens.
+
+        Parameters
+        ----------
+        data : osl_dynamics.data.Data
+            Time series data.
+        plot_dir : str, optional
+            Directory to save the plot.
+        """
+        # Calculate PVEs across all sessions
+        pves = self.get_pve(data)
+        plotting.plot_pve(pve=pves, plot_dir=plot_dir)
+
+    def plot_token_counts(self, data: Data, plot_dir: str = None) -> None:
+        """
+        Plots a histogram of token counts over all sessions.
+
+        Parameters
+        ----------
+        data : osl_dynamics.data.Data, optional
+            Time series data for refactoring tokens.
+        plot_dir : str, optional
+            Directory to save the plot.
+        """
+        total_token_counts = self.get_token_counts(data)
+
+        # Plot a histogram of token counts
+        fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(8, 6))
+        axes.bar(
+            range(1, total_token_counts.shape[0] + 1),
+            total_token_counts,
+            color="skyblue",
+            edgecolor="black",
+        )
+        axes.set_xlabel("Token Index")
+        axes.set_ylabel("Number of Occurrences")
+        axes.set_title(f"Token Histogram (N={len(total_token_counts)})")
+        plt.tight_layout()
+
+        if plot_dir is not None:
+            os.makedirs(plot_dir, exist_ok=True)
+            fig.savefig(f"{plot_dir}/token_counts.png")
+            plt.close(fig)
+
+    def plot_fitted_signal(
+        self,
+        data_path: str,
+        ground_truth_path: str = None,
+        plot_bins: bool = False,
+        plot_dir: str = None,
+    ) -> None:
+        """
+        Plots a signal reconstructed from tokenized data
+
+        Parameters
+        ----------
+        data_path : str
+            A path to a file containing the original data.
+        ground_truth_path : str, optional
+            A path to a file containing the ground truth data.
+        plot_bins : bool, optional
+            Whether to plot the bins, by default False.
+        plot_dir : str, optional
+            Directory to save the plot.
+        """
+
+        def _load_and_normalize_data(file_path, tmp_dir):
+            """Load and normalize data from a given path."""
+
+            # Define anonymous function
+            normalize = lambda x: (x - np.mean(x, axis=0)) / np.std(x, axis=0)
+
+            # Get data
+            dataset = Data(file_path, store_dir=tmp_dir)
+            data = normalize(dataset.arrays[0])
+            dataset.delete_dir()  # delete temporary directory
+            return data
+
+        # Get simulated data and its ground truth
+        original_data = _load_and_normalize_data(data_path, "tmp_org_data")
+        if ground_truth_path:
+            true_data = _load_and_normalize_data(ground_truth_path, "tmp_true_data")
+
+        # Get data reconstructed from tokens
+        tokenized_data = self.tokenize_data(original_data)
+        fitted_data = self.reconstruct_data(tokenized_data)
+
+        # Plot data signals and token weights
+        n_channels = min(original_data.shape[1], 3)  # number of channels to plot
+        start_idx, end_idx = 200, 500  # start and end indices to plot
+
+        fig, axes = plt.subplots(nrows=n_channels, ncols=1, figsize=(20, 12))
+        for i in range(n_channels):
+            axes[i].plot(original_data[start_idx:end_idx, i], label="Original")
+            if ground_truth_path:
+                axes[i].plot(true_data[start_idx:end_idx, i], label="True")
+            axes[i].plot(fitted_data[start_idx:end_idx, i], label="Fitted")
+            axes[i].set_title(f"Channel {i}: Data Signals")
+            if plot_bins:
+                for j in range(len(self.vocab["bins"])):
+                    axes[i].axhline(
+                        self.vocab["bins"][j], color="red", linestyle="--", linewidth=1
+                    )
+            axes[i].legend()
+        plt.tight_layout()
+        if plot_dir:
+            os.makedirs(plot_dir, exist_ok=True)
+            fig.savefig(f"{plot_dir}/fitted_signal.png")
+            plt.close(fig)
+
+    @staticmethod
+    def load_config(dirname: str) -> Config:
+        """
+        Load the config from a directory.
+
+        Parameters
+        ----------
+        dirname : str
+            Directory to load the configuration from.
+
+        Returns
+        -------
+        config : Config
+            Configuration object.
+        """
+        return get_config(f"{dirname}/config.yml")
+
+    @classmethod
+    def load_model(
+        cls,
+        dirname: str,
+        checkpoint: str = None,
+        strategy: tf.distribute.Strategy = None,
+    ):
+        """
+        Load a saved model.
+
+        Parameters
+        ----------
+        dirname : str
+            Directory containing the saved model.
+        checkpoint : str
+            For API compatibility, not used.
+        strategy : tf.distribute.Strategy
+            For API compatibility, not used.
+
+        Returns
+        -------
+        model : MuTransformTokenizer
+            The loaded model.
+        """
+        config = cls.load_config(dirname)
+        model = cls(config)
+        with open(f"{dirname}/vocab.pkl", "rb") as f:
+            model.vocab = pickle.load(f)
+        return model
+
+
+class StandardQuantileTokenizer:
+    def __init__(
+        self,
+        config: Config,
+        strategy: tf.distribute.Strategy = None,
+    ):
+        """
+        StandardQuantileTokenizer class.
+
+        This tokenizer employs the standard scaling and uniform binning
+        quantisation, as discussed in the Chronos paper (Ansari et al., 2024).
+
+        Parameters
+        ----------
+        config : Config
+            Configuration object.
+        strategy : tf.distribute.Strategy
+            For API compatibility, not used.
+        """
+        self.config = config
+        self.vocab = {}
+        self.n_tokens = config.model_config.n_tokens
+        self.standardize = config.model_config.standardize
+
+    def fit(self, x: Union[Data, np.ndarray, List[np.ndarray]]) -> None:
+        if isinstance(x, Data):
+            x = x.time_series(concatenate=False)
+
+        if not isinstance(x, list):
+            x = [x]
+
+        if self.standardize:
+            for i in range(len(x)):
+                x[i] = self._standardize(x[i])
+
+        self.vocab["bins"] = self.get_bins(x)
+        self.vocab["bins_average"] = self.get_bins_average(self.vocab["bins"])
+        self.vocab["total_token_counts"] = self.get_token_counts(x)
+
+    def get_token_counts(
+        self, data: Union[Data, np.ndarray, List[np.ndarray]]
+    ) -> np.ndarray:
+        """
+        Get the token counts for the given data.
+
+        Parameters
+        ----------
+        data : Union[Data, np.ndarray, List[np.ndarray]]
+            The data to get token counts for.
+        """
+        tokens = self.tokenize_data(data, concatenate=True)
+        token_counts = np.bincount(
+            tokens.flatten(), minlength=self.n_tokens
+        )
+        return token_counts
+
+    def save_config(self, dirname: str) -> None:
+        """
+        Save the config to a directory.
+        The config is saved as a YAML file as 'config.yml'.
+
+        Parameters
+        ----------
+        dirname : str
+            Directory to save the configuration.
+        """
+        self.config.save_config(dirname)
+
+    def save(self, dirname: str) -> None:
+        """Save the model config and attributes.
+
+        Parameters
+        ----------
+        dirname : str
+            Directory to save the model.
+        """
+        os.makedirs(dirname, exist_ok=True)
+        self.save_config(dirname)
+        with open(f"{dirname}/vocab.pkl", "wb") as f:
+            pickle.dump(self.vocab, f)
+
+    def _standardize(self, x: np.ndarray) -> np.ndarray:
+        """
+        Standardize the data.
+
+        Note
+        ----
+        The standard scaling methods are applied on the individual
+        time series.
+        """
+        x -= np.mean(x, axis=0)
+        x /= np.std(x, axis=0)
+        
+        return x
+
+    def get_bins(self, data: List[np.ndarray]) -> np.ndarray:
+        if isinstance(data, list):
+            data = np.concatenate(data, axis=0)
+        data = data.flatten()
+
+        # tokens 0 and n_tokens - 1 are for values < bins[0] and 
+        # >= bins[-1]; the rest n_tokens - 2 are for values in 
+        # between the bins are equally spaced in the range of 
+        # (bins[0], bins[-1])
+
+        bins = tfp.stats.quantiles(
+            data, num_quantiles=self.n_tokens - 1
+        )  # bin edges
+
+        return bins
+
+    def get_bins_average(self, bins: np.ndarray) -> np.ndarray:
+        # Calculate the average of each bin
+        bins_average = np.zeros(len(bins) + 1)
+        bins_average[0] = bins[0]
+        bins_average[-1] = bins[-1]
+
+        for i in range(len(bins) - 1):
+            bins_average[i + 1] = (bins[i] + bins[i + 1]) / 2
+
+        return bins_average
+
+    def tokenize_data(
+        self,
+        data: Union[Data, np.ndarray, List[np.ndarray]],
+        concatenate: bool = False,
+        n_jobs: int = 1,
+    ) -> Union[np.ndarray, List[np.ndarray]]:
+        if isinstance(data, Data):
+            data = data.time_series(concatenate=False)
+
+        if not isinstance(data, list):
+            data = [data]
+
+        def _tokenize_data_per_session(d):
+            t = np.digitize(d, self.vocab["bins"])
+            t = np.clip(t, 0, self.n_tokens - 1)  # safety check
+            return t
+
+        # Keywords for parallel processing
+        kwargs = [{"d": d} for d in data]
+        if len(data) == 1:
+            _logger.info("Tokenizing data...")
+            tokens = [_tokenize_data_per_session(**kwargs[0])]
+
+        elif n_jobs == 1:
+            tokens = []
+            for i in trange(len(data), desc="Tokenizing data"):
+                tokens.append(_tokenize_data_per_session(**kwargs[i]))
+
+        else:
+            tokens = pqdm(
+                kwargs,
+                _tokenize_data_per_session,
+                n_jobs=n_jobs,
+                desc="Tokenizing data",
+                argument_type="kwargs",
+                exception_behaviour="immediate",
+            )
+
+        if concatenate or len(tokens) == 1:
+            tokens = np.concatenate(tokens)
+
+        return tokens
+
+    def reconstruct_data(
+        self,
+        tokens: Union[Data, np.ndarray, List[np.ndarray]],
+        concatenate: bool = False,
+        n_jobs: int = 1,
+    ) -> Union[np.ndarray, List[np.ndarray]]:
+        if isinstance(tokens, Data):
+            tokens = tokens.time_series(concatenate=False)
+
+        if not isinstance(tokens, list):
+            tokens = [tokens]
+
+        def _reconstruct_data_per_session(t):
+            t = np.clip(t, 0, len(self.vocab["bins_average"]) - 1)  # safety check
             x = self.vocab["bins_average"][t]
             return x
 
