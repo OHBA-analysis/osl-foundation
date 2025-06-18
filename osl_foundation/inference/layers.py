@@ -370,8 +370,7 @@ class TokenWeightsLayer(tf.keras.layers.Layer):
 
         if training:
             # Sample from gumbel softmax parameterized by ell
-            dist = tfp.distributions.Gumbel(0, 1)
-            theta_sample = tf.argmax(dist.sample() + ell, axis=2)
+            theta_sample = tf.argmax(ell, axis=2)
             theta_sample = tf.one_hot(theta_sample, self.output_dim)
 
             #  Annealing

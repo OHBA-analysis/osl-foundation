@@ -746,12 +746,12 @@ class EphysGPT(BaseModel):
         # x.shape = (batch_size, sequence_length, n_channels, embedding_dim)
 
         # Run the decoder
-        x = decoder_layer(x, training="decoder" in self.pretrained_layers)
+        x = decoder_layer(x, training=not "decoder" in self.pretrained_layers)
         # x.shape = (batch_size, latent_sequence_length, n_channels, model_dim)
 
         # Get the prediction of the next token
         y_pred = prediction_head_layer(
-            x, training="prediction_head" in self.pretrained_layers
+            x, training=not "prediction_head" in self.pretrained_layers
         )
         # y_pred.shape = (batch_size, latent_sequence_length, n_channels, n_tokens)
 
