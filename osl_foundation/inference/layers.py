@@ -361,7 +361,7 @@ class TokenWeightsLayer(tf.keras.layers.Layer):
         self.dense_layer = tf.keras.layers.Dense(output_dim, activation=activation)
         self.activation_layer = tf.keras.layers.Activation(activation)
         self.norm_layer = tf.keras.layers.LayerNormalization()
-        self.temperature = tf.Variable(0.0, trainable=False)
+        self.temperature = tf.keras.Variable(0.0, trainable=False)
 
     def call(self, inputs, training=None, **kwargs):
         ell = self.activation_layer(self.dense_layer(inputs))
@@ -731,10 +731,10 @@ class PASSTALayer(tf.keras.layers.Layer):
         self.channel_attention_layer = ChannelAttentionLayer(key_dim)
 
         # Channel attention dropouts
-        self.channel_attention_dropout = tf.Variable(
+        self.channel_attention_dropout = tf.keras.Variable(
             channel_attention_dropout, trainable=False
         )
-        self.within_channel_attention_dropout = tf.Variable(
+        self.within_channel_attention_dropout = tf.keras.Variable(
             within_channel_attention_dropout, trainable=False
         )
 
