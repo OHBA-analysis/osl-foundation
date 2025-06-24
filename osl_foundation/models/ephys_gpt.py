@@ -488,6 +488,9 @@ class EphysGPT(BaseModel):
         self.tokenizer = self._load_tokenizer()
         self.model = self._build_model()
 
+        # Build the model with defined shapes
+        self.model(self._build_inputs(), training=False)
+
     def fit(
         self,
         *args,
@@ -680,6 +683,15 @@ class EphysGPT(BaseModel):
         if self.pretrained_model is None:
             return []
         return self.config.model_config.pretrained_layers
+
+    def _build_inputs(self):
+        config = self.config.model_config
+        inputs = {
+            "data": tf.zeros([1, config.sequence_length + 1, config.n_channels], dtype=tf.int32)
+        }
+        for label in config.extra_labels:
+            inputs[label.name] = tf.zeros([1, config.sequence_length + 1], dtype=tf.int32)
+        return inputs
 
     def _get_input_embedding_layer(self) -> InputEmbeddingLayer:
         config = self.config.model_config
