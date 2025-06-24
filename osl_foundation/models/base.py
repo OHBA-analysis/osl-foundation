@@ -356,13 +356,17 @@ class BaseModel:
         config = cls.load_config(dirname)
         model = cls(config, strategy=strategy)
         if checkpoint:
+            model.compile()
+            model.model.optimizer.build(model.model.trainable_variables)
+            
             cp = tf.train.Checkpoint(model=model.model, optimizer=model.model.optimizer)
             if checkpoint == "latest":
                 checkpoint_path = tf.train.latest_checkpoint(f"{dirname}/checkpoints")
             else:
                 checkpoint_path = checkpoint
             with model.model.distribute_strategy.scope():
-                cp.restore(checkpoint_path).expect_partial()
+                status = cp.restore(checkpoint_path)
+                status.assert_consumed()
         else:
             model.load_weights(f"{dirname}/model.weights.h5")
 
