@@ -1,4 +1,3 @@
-import numpy as np
 import pickle
 
 from osl_dynamics.inference import tf_ops

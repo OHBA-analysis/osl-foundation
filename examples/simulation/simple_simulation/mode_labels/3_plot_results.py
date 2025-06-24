@@ -1,7 +1,6 @@
 import os
 from glob import glob
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pickle
 
@@ -71,7 +70,7 @@ plotting.plot_time_frequency(
     generated_data[2],
     generated_data[3],
     sampling_frequency=100,
-    n_samples=n_samples,  # 60 seconds
+    n_samples=n_samples,  # 20 seconds
     titles=[
         "Original",
         "Reconstructed",
