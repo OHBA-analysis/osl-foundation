@@ -1,6 +1,4 @@
 import os
-from glob import glob
-import pickle
 
 from osl_dynamics.inference import tf_ops
 from osl_dynamics.data import load_tfrecord_dataset
@@ -18,7 +16,6 @@ os.makedirs(generator_dir, exist_ok=True)
 # ---------- Build generator ---------- #
 generator = create_model(f"{generator_dir}/config.yml")
 generator.summary()
-generator.save(generator_dir)
 
 # ---------- Load data ---------- #
 train_data, val_data = load_tfrecord_dataset(
@@ -29,15 +26,13 @@ train_data, val_data = load_tfrecord_dataset(
     concatenate=True,
 )
 
+# Only select the data as inputs (don't include extra channels of mode time course)
+train_data = train_data.map(lambda x: {"data": x["data"]})
+val_data = val_data.map(lambda x: {"data": x["data"]})
+
 # ---------- Fit generator ---------- #
 generator.fit(
     train_data,
     validation_data=val_data,
     tokenize=False,
 )
-generated_data = generator.generate_data(
-    n_samples=2048,
-    top_p=0.95,
-    batch_size=20,
-)
-pickle.dump(generated_data, open(f"{generator_dir}/generated_data.pkl", "wb"))
