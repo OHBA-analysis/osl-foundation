@@ -63,7 +63,7 @@ def plot_time_series_summary(
     )
 
     # Plot the time series
-    axes[0].plot(timestamps, time_series[:n_samples], color=color)
+    axes[0].plot(timestamps, time_series[-n_samples:], color=color)
     axes[0].set_xlabel("Time (s)")
 
     # Plot the time frequency content
@@ -72,7 +72,7 @@ def plot_time_series_summary(
 
     # Plot the PSD
     f, Pxx = signal.welch(
-        time_series[:n_samples], fs=sampling_frequency, nperseg=2 * sampling_frequency
+        time_series[-n_samples:], fs=sampling_frequency, nperseg=2 * sampling_frequency
     )
     axes[2].plot(f, Pxx, color=color, label=label)
     axes[2].set_xlabel("Frequency (Hz)")
