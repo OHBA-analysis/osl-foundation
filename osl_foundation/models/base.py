@@ -8,7 +8,7 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 
 from osl_dynamics.data import Data
-from osl_dynamics.data.tf import concatenate_datasets
+from osl_dynamics.data import tf as dtf
 from osl_dynamics.inference import initializers as osld_initializers
 from osl_dynamics.utils.misc import get_argument, replace_argument
 
@@ -145,7 +145,7 @@ class BaseModel:
             outputs = [inputs]
 
         elif isinstance(inputs, list) and concatenate:
-            outputs = concatenate_datasets(inputs)
+            outputs = dtf.concatenate_datasets(inputs)
 
         else:
             outputs = inputs
@@ -164,19 +164,38 @@ class BaseModel:
         kwargs : keyword arguments, optional
             Keyword arguments for :code:`tf.keras.Model.fit()`.
         """
-        # If step_per_epoch is passed, repeat the dataset indefinitely
+        x = get_argument(self.model.fit, "x", args, kwargs)
+
+        # If step_per_epoch is not passed, calculate it from the dataset
         steps_per_epoch = get_argument(self.model.fit, "steps_per_epoch", args, kwargs)
-        repeat_count = 1 if steps_per_epoch is None else -1
+        if steps_per_epoch is None:
+            x_ = self.make_dataset(
+                x,
+                shuffle=True,
+                concatenate=True,
+                drop_last_batch=True,
+                repeat_count=1,
+            )
+            n_sequences, _ = dtf.get_n_sequences_and_range(x_)
+            steps_per_epoch = np.ceil(
+                n_sequences / self.config.training_config.batch_size
+            ).astype(int)
+            args, kwargs = replace_argument(
+                self.model.fit,
+                "steps_per_epoch",
+                steps_per_epoch,
+                args,
+                kwargs,
+            )
 
         # If a osl_dynamics.data.Data object has been passed for the x
         # arguments, replace it with a tensorflow dataset
-        x = get_argument(self.model.fit, "x", args, kwargs)
         x = self.make_dataset(
             x,
             shuffle=True,
             concatenate=True,
             drop_last_batch=True,
-            repeat_count=repeat_count,
+            repeat_count=-1,
         )
         args, kwargs = replace_argument(self.model.fit, "x", x, args, kwargs)
 

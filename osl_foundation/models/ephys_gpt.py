@@ -520,6 +520,7 @@ class EphysGPT(BaseModel):
         """
         if tokenize:
             x = get_argument(self.model.fit, "x", args, kwargs)
+            x_val = get_argument(self.model.fit, "validation_data", args, kwargs)
 
             # Tokenise the data and build Data object
             tokenized_x = self.tokenizer.tokenize_data(x)
@@ -530,8 +531,21 @@ class EphysGPT(BaseModel):
                 n_jobs=n_jobs,
             )
             tokenized_x.session_labels = x.session_labels
+
+            if x_val is not None:
+                tokenized_x_val = self.tokenizer.tokenize_data(x_val)
+                tokenized_x_val = Data(
+                    tokenized_x_val,
+                    store_dir=f"{getattr(x_val, 'store_dir', 'tmp')}/tokenized",
+                    use_tfrecord=use_tfrecord,
+                    n_jobs=n_jobs,
+                )
+                tokenized_x_val.session_labels = x_val.session_labels
+            else:
+                tokenized_x_val = None
         else:
             tokenized_x = get_argument(self.model.fit, "x", args, kwargs)
+            tokenized_x_val = get_argument(self.model.fit, "validation_data", args, kwargs)
 
         validation_split = get_argument(
             self.model.fit, "validation_split", args, kwargs
@@ -539,7 +553,6 @@ class EphysGPT(BaseModel):
 
         # If step_per_epoch is passed, repeat the dataset indefinitely
         steps_per_epoch = get_argument(self.model.fit, "steps_per_epoch", args, kwargs)
-        repeat_count = 1 if steps_per_epoch is None else -1
 
         dataset = self.make_dataset(
             tokenized_x,
@@ -548,16 +561,24 @@ class EphysGPT(BaseModel):
             step_size=step_size,
             drop_last_batch=True,
             validation_split=validation_split,
-            repeat_count=repeat_count,
+            repeat_count=1,
         )
         if validation_split is None:
             args, kwargs = replace_argument(
                 self.model.fit,
                 "x",
-                dataset,
+                tokenized_x,
                 args,
                 kwargs,
             )
+            if tokenized_x_val:
+                args, kwargs = replace_argument(
+                    self.model.fit,
+                    "validation_data",
+                    tokenized_x_val,
+                    args,
+                    kwargs,
+                )
         else:
             args, kwargs = replace_argument(
                 self.model.fit,
