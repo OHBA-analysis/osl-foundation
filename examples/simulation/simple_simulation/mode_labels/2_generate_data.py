@@ -45,7 +45,7 @@ for k in extra_channels.keys():
 
 generated_data = generator.generate_data(
     n_samples=2048,
-    top_p=0.95,
+    top_p=0.99,
     batch_size=4,
     extra_channels=extra_channels,
 )
