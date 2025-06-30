@@ -165,6 +165,7 @@ class BaseModel:
             Keyword arguments for :code:`tf.keras.Model.fit()`.
         """
         x = get_argument(self.model.fit, "x", args, kwargs)
+        x_val = get_argument(self.model.fit, "validation_data", args, kwargs)
 
         # If step_per_epoch is not passed, calculate it from the dataset
         steps_per_epoch = get_argument(self.model.fit, "steps_per_epoch", args, kwargs)
@@ -188,8 +189,8 @@ class BaseModel:
                 kwargs,
             )
 
-        # If a osl_dynamics.data.Data object has been passed for the x
-        # arguments, replace it with a tensorflow dataset
+        # If a osl_dynamics.data.Data object has been passed as the training 
+        # and validation data, replace it with a tensorflow dataset
         x = self.make_dataset(
             x,
             shuffle=True,
@@ -198,6 +199,18 @@ class BaseModel:
             repeat_count=-1,
         )
         args, kwargs = replace_argument(self.model.fit, "x", x, args, kwargs)
+        
+        if x_val is not None:
+            x_val = self.make_dataset(
+                x_val,
+                shuffle=False,
+                concatenate=True,
+                drop_last_batch=True,
+                repeat_count=None,
+            )
+            args, kwargs = replace_argument(
+                self.model.fit, "validation_data", x_val, args, kwargs
+            )
 
         # Use the number of epochs in the config if it has not been passed
         if get_argument(self.model.fit, "epochs", args, kwargs) is None:
