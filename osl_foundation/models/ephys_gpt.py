@@ -67,9 +67,7 @@ class CrossEntropyLossLayer(tf.keras.layers.Layer):
             setattr(
                 self,
                 f"top_{k}",
-                tf.keras.metrics.SparseTopKCategoricalAccuracy(
-                    k=k, name=f"top_{k}"
-                ),
+                tf.keras.metrics.SparseTopKCategoricalAccuracy(k=k, name=f"top_{k}"),
             )
 
     def call(self, inputs, **kwargs):
@@ -414,9 +412,9 @@ class DecoderLayer(tf.keras.layers.Layer):
 
         # Build the attention, normalization, and feed-forward layers
         proj_shape = list(input_shape)
-        proj_shape[-1] = self.model_dim 
+        proj_shape[-1] = self.model_dim
 
-        for (att, att_drop, norm1, norm2, ff) in zip(
+        for att, att_drop, norm1, norm2, ff in zip(
             self.attention_layers,
             self.attention_dropout_layers,
             self.normalization_layers_1,
@@ -545,7 +543,9 @@ class EphysGPT(BaseModel):
                 tokenized_x_val = None
         else:
             tokenized_x = get_argument(self.model.fit, "x", args, kwargs)
-            tokenized_x_val = get_argument(self.model.fit, "validation_data", args, kwargs)
+            tokenized_x_val = get_argument(
+                self.model.fit, "validation_data", args, kwargs
+            )
 
         validation_split = get_argument(
             self.model.fit, "validation_split", args, kwargs
@@ -575,9 +575,8 @@ class EphysGPT(BaseModel):
                 step_size=step_size,
                 drop_last_batch=True,
                 validation_split=validation_split,
-                repeat_count=1,
             )
-            
+
             args, kwargs = replace_argument(
                 self.model.fit,
                 "x",
@@ -706,10 +705,14 @@ class EphysGPT(BaseModel):
     def _build_inputs(self):
         config = self.config.model_config
         inputs = {
-            "data": tf.zeros([1, config.sequence_length + 1, config.n_channels], dtype=tf.int32)
+            "data": tf.zeros(
+                [1, config.sequence_length + 1, config.n_channels], dtype=tf.int32
+            )
         }
         for label in config.extra_labels:
-            inputs[label.name] = tf.zeros([1, config.sequence_length + 1], dtype=tf.int32)
+            inputs[label.name] = tf.zeros(
+                [1, config.sequence_length + 1], dtype=tf.int32
+            )
         return inputs
 
     def _get_input_embedding_layer(self) -> InputEmbeddingLayer:
@@ -821,7 +824,7 @@ class EphysGPT(BaseModel):
 
         # Calculate the loss
         loss, y_pred = loss_layer([y_pred, y_true])
-    
+
         # ---------- Create Model ---------- #
         inputs = {"data": data}
         for i, label in enumerate(config.extra_labels):

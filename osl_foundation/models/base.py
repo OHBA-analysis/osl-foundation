@@ -62,7 +62,6 @@ class BaseModel:
         step_size: int = None,
         drop_last_batch: bool = False,
         validation_split: float = None,
-        repeat_count: int = 1,
     ) -> Union[tf.data.Dataset, List[tf.data.Dataset]]:
         """
         Make a TensorFlow Dataset from an osl-dynamics Data object.
@@ -83,8 +82,6 @@ class BaseModel:
             Should we drop the last batch if it is smaller than the batch size?
         validation_split : float, optional
             Fraction of the data to use for validation.
-        repeat_count : int, optional
-            Number of times to repeat the dataset. Default is 1.
 
         Returns
         -------
@@ -125,7 +122,6 @@ class BaseModel:
                     step_size=step_size,
                     drop_last_batch=drop_last_batch,
                     validation_split=validation_split,
-                    repeat_count=repeat_count,
                     overwrite=True,
                 )
             else:
@@ -137,7 +133,6 @@ class BaseModel:
                     step_size=step_size,
                     drop_last_batch=drop_last_batch,
                     validation_split=validation_split,
-                    repeat_count=repeat_count,
                 )
 
         elif isinstance(inputs, tf.data.Dataset) and not concatenate:
@@ -165,51 +160,45 @@ class BaseModel:
             Keyword arguments for :code:`tf.keras.Model.fit()`.
         """
         x = get_argument(self.model.fit, "x", args, kwargs)
-        x_val = get_argument(self.model.fit, "validation_data", args, kwargs)
 
-        # If step_per_epoch is not passed, calculate it from the dataset
-        steps_per_epoch = get_argument(self.model.fit, "steps_per_epoch", args, kwargs)
-        if steps_per_epoch is None:
-            x_ = self.make_dataset(
-                x,
-                shuffle=True,
-                concatenate=True,
-                drop_last_batch=True,
-                repeat_count=1,
-            )
-            n_sequences, _ = dtf.get_n_sequences_and_range(x_)
-            steps_per_epoch = np.ceil(
-                n_sequences / self.config.training_config.batch_size
-            ).astype(int)
-            args, kwargs = replace_argument(
-                self.model.fit,
-                "steps_per_epoch",
-                steps_per_epoch,
-                args,
-                kwargs,
-            )
-
-        # If a osl_dynamics.data.Data object has been passed as the training 
-        # and validation data, replace it with a tensorflow dataset
         x = self.make_dataset(
             x,
             shuffle=True,
             concatenate=True,
             drop_last_batch=True,
-            repeat_count=-1,
         )
-        args, kwargs = replace_argument(self.model.fit, "x", x, args, kwargs)
-        
+
+        # If step_per_epoch is not passed, calculate it from the dataset
+        steps_per_epoch = get_argument(self.model.fit, "steps_per_epoch", args, kwargs)
+        steps_per_epoch = steps_per_epoch or dtf.get_n_batches(x)
+
+        args, kwargs = replace_argument(self.model.fit, "x", x.repeat(), args, kwargs)
+        args, kwargs = replace_argument(
+            self.model.fit, "steps_per_epoch", steps_per_epoch, args, kwargs
+        )
+
+        x_val = get_argument(self.model.fit, "validation_data", args, kwargs)
         if x_val is not None:
             x_val = self.make_dataset(
                 x_val,
                 shuffle=False,
                 concatenate=True,
                 drop_last_batch=True,
-                repeat_count=None,
+            )
+            validation_steps = get_argument(
+                self.model.fit, "validation_steps", args, kwargs
+            )
+            validation_steps = validation_steps or dtf.get_n_batches(x_val)
+
+            args, kwargs = replace_argument(
+                self.model.fit, "validation_data", x_val.repeat(), args, kwargs
             )
             args, kwargs = replace_argument(
-                self.model.fit, "validation_data", x_val, args, kwargs
+                self.model.fit,
+                "validation_steps",
+                validation_steps,
+                args,
+                kwargs,
             )
 
         # Use the number of epochs in the config if it has not been passed
@@ -390,7 +379,7 @@ class BaseModel:
         if checkpoint:
             model.compile()
             model.model.optimizer.build(model.model.trainable_variables)
-            
+
             cp = tf.train.Checkpoint(model=model.model, optimizer=model.model.optimizer)
             if checkpoint == "latest":
                 checkpoint_path = tf.train.latest_checkpoint(f"{dirname}/checkpoints")
