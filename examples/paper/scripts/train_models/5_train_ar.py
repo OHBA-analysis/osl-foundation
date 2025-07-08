@@ -4,6 +4,7 @@ of the Cam-CAN resting-state dataset.
 """
 
 import os
+from glob import glob
 import pickle
 from typing import Tuple
 
@@ -11,7 +12,11 @@ import numpy as np
 from tqdm.auto import trange
 from sklearn.linear_model import SGDRegressor
 
-from osl_dynamics.data import load_tfrecord_dataset
+from osl_dynamics.data import Data, load_tfrecord_dataset
+from osl_dynamics.inference import tf_ops
+from osl_dynamics.analysis import power
+
+tf_ops.gpu_growth()
 
 
 # ---------- Helper functions ---------- #
@@ -37,15 +42,41 @@ def load_data(
     y_test : np.ndarray
         Testing targets. Shape is (n_test_samples,).
     """
+    tfrecord_dir = "../../data/raw_tfrecords"
     if overwrite or not os.path.exists(data_path):
-        tfrecord_dir = "../../data/tfrecords"
-        train_data, val_data = load_tfrecord_dataset(
-            tfrecord_dir,
-            batch_size=16,
-            buffer_size=2000,
-            drop_last_batch=True,
-            concatenate=True,
-        )
+        try:
+            train_data, val_data = load_tfrecord_dataset(
+                tfrecord_dir,
+                batch_size=16,
+                buffer_size=2000,
+                drop_last_batch=True,
+                concatenate=True,
+            )
+        except FileNotFoundError:
+            data_dir = "/well/woolrich/projects/camcan/spring23/src"
+            data_files = sorted(glob(f"{data_dir}/*/sflip_parc-raw.fif"))
+            data = Data(
+                data_files,
+                n_jobs=12,
+                picks="misc",
+                reject_by_annotation="omit",
+            )
+
+            os.makedirs(tfrecord_dir, exist_ok=True)
+            data.save_tfrecord_dataset(
+                tfrecord_dir,
+                sequence_length=80 + 1,
+                overwrite=True,
+                validation_split=0.1,
+            )
+
+            train_data, val_data = load_tfrecord_dataset(
+                tfrecord_dir,
+                batch_size=16,
+                buffer_size=2000,
+                drop_last_batch=True,
+                concatenate=True,
+            )
 
         d_train = []
         for d in train_data:
@@ -144,4 +175,12 @@ np.savez(
     f"{ar_model_dir}/accuracy.npz",
     scores=scores,
     se=se,
+)
+
+power.save(
+    scores - np.mean(scores),
+    mask_file="MNI152_T1_8mm_brain.nii.gz",
+    parcellation_file="Glasser52_binary_space-MNI152NLin6_res-8x8x8.nii.gz",
+    plot_kwargs={"cbar_label": f"R² score mean = {np.mean(scores):.2f}"},
+    filename=f"{ar_model_dir}/scores.png",
 )

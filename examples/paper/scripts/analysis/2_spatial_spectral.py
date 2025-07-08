@@ -180,7 +180,7 @@ if __name__ == "__main__":
     - Power spectral density (PSD)
     - Static power maps for different frequency bands
     """
-    plot_dir = "results/plots/summary"
+    plot_dir = "../../plots/2_spatial_spectral"
     os.makedirs(plot_dir, exist_ok=True)
 
     # Get PSD

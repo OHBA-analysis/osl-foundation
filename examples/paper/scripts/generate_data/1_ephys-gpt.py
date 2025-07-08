@@ -6,7 +6,10 @@ from typing import List, Union
 import numpy as np
 from tqdm.auto import tqdm
 
+from osl_dynamics.inference import tf_ops
 from osl_foundation import load_model
+
+tf_ops.gpu_growth()
 
 
 def generate_data(

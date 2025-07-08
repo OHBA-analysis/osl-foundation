@@ -29,6 +29,8 @@ def plot_channel_location(channel: int, plot_dir: str) -> None:
     plot_dir : str
         Directory to save the plot.
     """
+    os.makedirs(plot_dir, exist_ok=True)
+
     power_map = np.zeros(52)
     power_map[channel] = 1
     power.save(
@@ -101,6 +103,32 @@ def prepare_data(channel: int) -> Tuple[Data, Data, Data]:
     return real_data, gen_data, ar_gen_data
 
 
+def get_summary_stats(data: Data, output_dir: str) -> None:
+    """
+    Get summary statistics for bursting behaviour.
+
+    Parameters
+    ----------
+    data : Data
+        Data object containing the time series.
+    output_dir : str
+        Directory to save the summary statistics.
+    """
+    inf_params_dir = f"{output_dir}/inf_params"
+    summary_stats_dir = f"{output_dir}/summary_stats"
+    os.makedirs(summary_stats_dir, exist_ok=True)
+
+    alp = pickle.load(open(f"{inf_params_dir}/alp.pkl", "rb"))
+    stc = modes.argmax_time_courses(alp)
+
+    lt = modes.mean_lifetimes(stc, data.sampling_frequency)
+    intv = modes.mean_intervals(stc, data.sampling_frequency)
+    bc = modes.switching_rates(stc, data.sampling_frequency)
+    np.save(f"{summary_stats_dir}/lt.npy", lt)
+    np.save(f"{summary_stats_dir}/intv.npy", intv)
+    np.save(f"{summary_stats_dir}/bc.npy", bc)
+
+
 def get_order(generated_output_dir: str) -> np.ndarray:
     """
     Get the order of states based on the covariance matrices.
@@ -135,6 +163,8 @@ def plot_psd(results_dir: str, plot_dir: str) -> None:
     plot_dir : str
         Directory to save the plots.
     """
+    os.makedirs(plot_dir, exist_ok=True)
+
     real_psd = np.load(f"{results_dir}/real/spectra/psd.npy")
     gen_psd = np.load(f"{results_dir}/ephys-gpt/spectra/psd.npy")
     gen_ar_psd = np.load(f"{results_dir}/ar_model/spectra/psd.npy")
@@ -209,6 +239,8 @@ def plot_wavelet(
     plot_dir : str
         Directory to save the plots.
     """
+    os.makedirs(plot_dir, exist_ok=True)
+
     vmin = float("inf")
     vmax = float("-inf")
     for data in [real_data, gen_data, ar_gen_data]:
@@ -271,6 +303,8 @@ def plot_summary_stats(results_dir, plot_dir) -> None:
     plot_dir : str
         Directory to save the plots.
     """
+    os.makedirs(plot_dir, exist_ok=True)
+
     real_bc = np.load(f"{results_dir}/real/summary_stats/bc.npy")
     real_intv = np.load(f"{results_dir}/real/summary_stats/intv.npy")
     real_lt = np.load(f"{results_dir}/real/summary_stats/lt.npy")
@@ -280,11 +314,13 @@ def plot_summary_stats(results_dir, plot_dir) -> None:
     gen_intv = np.load(f"{results_dir}/ephys-gpt/summary_stats/intv.npy")
     gen_lt = np.load(f"{results_dir}/ephys-gpt/summary_stats/lt.npy")
     gen_features = np.transpose([gen_bc, gen_intv, gen_lt], (1, 0, 2))
+    gen_features = gen_features[:, :, get_order(f"{results_dir}/ephys-gpt")]
 
     gen_ar_bc = np.load(f"{results_dir}/ar_model/summary_stats/bc.npy")
     gen_ar_intv = np.load(f"{results_dir}/ar_model/summary_stats/intv.npy")
     gen_ar_lt = np.load(f"{results_dir}/ar_model/summary_stats/lt.npy")
     gen_ar_features = np.transpose([gen_ar_bc, gen_ar_intv, gen_ar_lt], (1, 0, 2))
+    gen_ar_features = gen_ar_features[:, :, get_order(f"{results_dir}/ar_model")]
 
     gen_sum_diff = np.abs(gen_features - real_features)
     gen_ar_sum_diff = np.abs(gen_ar_features - real_features)
@@ -475,7 +511,7 @@ if __name__ == "__main__":
 
     channel = int(argv[1])
     results_dir = f"../../results/bursting_detection/channel_{channel}"
-    plot_dir = f"../../plots/bursting_detection/channel_{channel}"
+    plot_dir = f"../../plots/4_bursting_detection/channel_{channel}"
     os.makedirs(results_dir, exist_ok=True)
     os.makedirs(plot_dir, exist_ok=True)
 
@@ -497,6 +533,7 @@ if __name__ == "__main__":
         multitaper_spectra:
             kwargs:
                 frequency_range: [1, 45]
+        get_summary_stats: {}
     """
     for data, name in zip(
         [real_data, gen_data, ar_gen_data],
@@ -506,6 +543,7 @@ if __name__ == "__main__":
             config,
             output_dir=f"{results_dir}/{name}",
             data=data,
+            extra_funcs=[get_summary_stats],
         )
 
     # Plot the power spectral density (PSD)

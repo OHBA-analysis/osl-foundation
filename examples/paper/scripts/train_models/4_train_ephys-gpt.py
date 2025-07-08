@@ -4,7 +4,10 @@ resting-state dataset.
 """
 
 from osl_dynamics.data import load_tfrecord_dataset
+from osl_dynamics.inference import tf_ops
 from osl_foundation import create_model
+
+tf_ops.gpu_growth()
 
 # ---------- Initialise Ephys-GPT ---------- #
 ephys_gpt_dir = "../../models/ephys-gpt"

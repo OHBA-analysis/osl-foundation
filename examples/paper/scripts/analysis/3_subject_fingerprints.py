@@ -113,6 +113,8 @@ def plot_age_effect(plot_dir: str) -> None:
     plot_dir : str
         Directory to save the plots.
     """
+    os.makedirs(plot_dir, exist_ok=True)
+
     f, psd_real, psd_gen = get_psd()
     df = get_demographics()
     categories = df["age_range"].cat.categories
@@ -370,6 +372,8 @@ def plot_pairwise_distance(
         Values above this percentile will be clipped.
         Default is 1.0 (no clipping).
     """
+    os.makedirs(plot_dir, exist_ok=True)
+
     if not isinstance(metrics, list):
         metrics = [metrics]
 
@@ -507,6 +511,8 @@ def plot_accuracy_curve(
     plot_dir : str
         Directory to save the plots.
     """
+    os.makedirs(plot_dir, exist_ok=True)
+
     if not isinstance(metrics, list):
         metrics = [metrics]
 
@@ -523,6 +529,31 @@ def plot_accuracy_curve(
         )
         fig.savefig(f"{plot_dir}/{metric}_accuracy_curve.png")
         plt.close(fig)
+
+
+def get_consistency_score(mat: np.ndarray) -> float:
+    """
+    Calculate the consistency score between two pairwise distance matrices.
+
+    Parameters
+    ----------
+    mat : np.ndarray
+        Pairwise distance matrix of shape (n_subjects * 2, n_subjects * 2).
+
+    Returns
+    -------
+    consistency : float
+        Consistency score.
+    """
+    n_subjects = mat.shape[0] // 2
+    real_pdist = mat[:n_subjects, :n_subjects]
+    generated_pdist = mat[n_subjects:, n_subjects:]
+
+    m, n = np.tril_indices(n_subjects, k=-1)
+    real_pdist_flat = real_pdist[m, n]
+    generated_pdist_flat = generated_pdist[m, n]
+    consistency = np.corrcoef(real_pdist_flat, generated_pdist_flat)[0, 1]
+    return consistency
 
 
 def plot_consistency_score(
@@ -545,6 +576,8 @@ def plot_consistency_score(
     n_permutations : int, optional
         Number of permutations to perform for the null distribution.
     """
+    os.makedirs(plot_dir, exist_ok=True)
+
     if not isinstance(metrics, list):
         metrics = [metrics]
 
@@ -582,6 +615,47 @@ def plot_consistency_score(
         )
         fig.savefig(f"{plot_dir}/{metric}_consistency_score.png")
         plt.close(fig)
+
+
+def get_summary_table(
+    feature_types: Union[str, List[str]],
+    metric: str,
+    save_dir: str,
+) -> pd.DataFrame:
+    if not isinstance(feature_types, list):
+        feature_types = [feature_types]
+
+    df = pd.DataFrame(
+        columns=[
+            "feature_type",
+            "top_1_accuracy",
+            "top_5_accuracy",
+            "consistency_score",
+        ]
+    )
+    for feature_type in feature_types:
+        pdist_ = np.load(f"{save_dir}/{feature_type}/{metric}_pdist.npy")
+        top_1_accuracy = get_accuracy(pdist_, top_k=1)
+        top_5_accuracy = get_accuracy(pdist_, top_k=5)
+        consistency_score = get_consistency_score(pdist_)
+
+        df = pd.concat(
+            [
+                df,
+                pd.DataFrame(
+                    {
+                        "feature_type": feature_type,
+                        "top_1_accuracy": top_1_accuracy,
+                        "top_5_accuracy": top_5_accuracy,
+                        "consistency_score": consistency_score,
+                    },
+                ),
+            ]
+        )
+
+    df = df.reset_index(drop=True)
+    df.to_csv(f"{save_dir}/summary_table.csv", index=False)
+    return df
 
 
 if __name__ == "__main__":
@@ -639,3 +713,11 @@ if __name__ == "__main__":
             plot_dir=f"{plot_dir}/{feature_type}",
             n_permutations=1000,
         )
+
+    # Get the summary table
+    summary_df = get_summary_table(
+        feature_types=feature_types,
+        metric="correlation",
+        save_dir=save_dir,
+    )
+    print(summary_df)

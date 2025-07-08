@@ -8,7 +8,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from osl_dynamics.data import Data
+from osl_dynamics.inference import tf_ops
 from osl_foundation import load_model
+
+tf_ops.gpu_growth()
 
 
 def calculate_pve(
@@ -36,8 +39,8 @@ def calculate_pve(
     """
     if (
         not overwrite
-        and os.path.exists("results/camcan_pve.npy")
-        and os.path.exists("results/wh_pve.npy")
+        and os.path.exists(f"{save_dir}/camcan_pve.npy")
+        and os.path.exists(f"{save_dir}/wh_pve.npy")
     ):
         print("PVE files already exist. Use overwrite=True to recalculate.")
         return
@@ -49,7 +52,6 @@ def calculate_pve(
         sampling_frequency=250,
         picks="misc",
         reject_by_annotation="omit",
-        use_tfrecord=True,
         n_jobs=12,
     )
     wh_data = Data(
@@ -57,7 +59,6 @@ def calculate_pve(
         sampling_frequency=250,
         picks="misc",
         reject_by_annotation="omit",
-        use_tfrecord=True,
         n_jobs=12,
     )
     camcan_data.standardize()
@@ -186,10 +187,11 @@ def plot_results(
     camcan_train_files: List[str],
     camcan_test_files: List[str],
     wh_files: List[str],
-    channels: Union[int, List[int]] = 0,
+    channels: Union[int, List[int]],
+    tokenizer_dir: str,
+    results_dir: str,
+    plot_dir: str,
     n_samples: int = 300,
-    tokenizer_dir: str = "/well/woolrich/projects/foundation_models/tokenizers/base/model",
-    plot_dir: str = "results",
 ) -> None:
     """
     Plot the results for tokenizer.
@@ -202,14 +204,16 @@ def plot_results(
         List of file paths for Cam-CAN test dataset.
     wh_files : List[str]
         List of file paths for Wakeman-Henson dataset.
-    channels : Union[int, List[int]], optional
+    channels : Union[int, List[int]]
         Channel indices to plot.
+    tokenizer_dir : str
+        Directory where the tokenizer model is saved.
+    results_dir : str
+        Directory where the results will be saved.
+    plot_dir : str
+        Directory where the plots will be saved.
     n_samples : int, optional
         Number of samples to plot from each dataset. Default is 300.
-    tokenizer_dir : str, optional
-        Directory where the tokenizer model is saved.
-    plot_dir : str, optional
-        Directory where the plots will be saved.
     """
     if not isinstance(channels, list):
         channels = [channels]
@@ -267,8 +271,8 @@ def plot_results(
     fig.savefig(f"{plot_dir}/fitted_signals.png")
     plt.close(fig)
 
-    camcan_pve = np.load("results/camcan_pve.npy")
-    wh_pve = np.load("results/wh_pve.npy")
+    camcan_pve = np.load(f"{results_dir}/camcan_pve.npy")
+    wh_pve = np.load(f"{results_dir}/wh_pve.npy")
 
     plot_boxplot(
         camcan_pve[:50],
@@ -294,6 +298,7 @@ if __name__ == "__main__":
         camcan_data_paths,
         wh_data_paths,
         tokenizer_dir=tokenizer_dir,
+        save_dir=results_dir,
     )
 
     # Plot results
@@ -305,5 +310,6 @@ if __name__ == "__main__":
         wh_data_paths[0],
         channels=[0],
         tokenizer_dir=tokenizer_dir,
+        results_dir=results_dir,
         plot_dir=plot_dir,
     )
