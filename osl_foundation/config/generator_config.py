@@ -39,11 +39,13 @@ class EphysGPTModelConfig(BaseModelConfig):
     # ---------- Input parameters ---------- #
     embedding_dim: int = None
     n_tokens: int = None
+    n_sessions: int = None
 
     token_embedding_dim: int = None
     pos_embedding_dim: int = None
     pos_embedding_type: str = "absolute"
     channel_embedding_dim: int = None
+    channel_embedding_type: str = "group"
     extra_labels: List[Label] = None
 
     # ---------- Decoder parameters ---------- #
@@ -62,6 +64,9 @@ class EphysGPTModelConfig(BaseModelConfig):
     norm_type: str = "layer"
     n_groups: int = None
 
+    # ---------- Prediction head parameters ---------- #
+    prediction_type: str = "token"
+
     # ---------- Loss parameters ---------- #
     loss_sequence_length: int = None
     top_k: list = None
@@ -71,6 +76,7 @@ class EphysGPTModelConfig(BaseModelConfig):
         self._validate_tokenizer_path()
         self._validate_input_parameters()
         self._validate_decoder_parameters()
+        self._validate_prediction_head_parameters()
         self._validate_loss_parameters()
 
     def _validate_pretrained_model_parameters(self) -> None:
@@ -113,6 +119,16 @@ class EphysGPTModelConfig(BaseModelConfig):
         assert (
             self.pos_embedding_type in VALID_POS_EMBEDDING_TYPES
         ), f"pos_embedding_type must be one of {VALID_POS_EMBEDDING_TYPES}"
+        VALID_CHANNEL_EMBEDDING_TYPES = ["group", "session"]
+        assert (
+            self.channel_embedding_type in VALID_CHANNEL_EMBEDDING_TYPES
+        ), f"channel_embedding_type must be one of {VALID_CHANNEL_EMBEDDING_TYPES}"
+        if self.n_sessions is None:
+            assert (
+                self.channel_embedding_type == "session"
+            ), "n_sessions must be set if channel_embedding_type is 'session'"
+        else:
+            assert self.n_sessions > 0, "n_sessions must be greater than 0"
         self.extra_labels = self.extra_labels or []
 
     def _validate_decoder_parameters(self) -> None:
@@ -147,6 +163,11 @@ class EphysGPTModelConfig(BaseModelConfig):
                 self.model_dim % self.n_groups == 0
             ), "model_dim must be divisible by n_groups"
 
+    def _validate_prediction_head_parameters(self) -> None:
+        assert (
+            self.prediction_type in ["token", "binary"]
+        ), "prediction_type must be 'token' or 'binary'"
+
     def _validate_loss_parameters(self) -> None:
         assert self.loss_sequence_length is not None, "loss_sequence_length must be set"
         assert (
@@ -161,6 +182,7 @@ class EphysGPTModelConfig(BaseModelConfig):
         self._set_tokenizer_path(config)
         self._set_input_parameters(config.get("input_parameters", {}))
         self._set_decoder_parameters(config.get("decoder_parameters", {}))
+        self._set_prediction_head_parameters(config.get("prediction_head_parameters", {}))
         self._set_loss_parameters(config.get("loss_parameters", {}))
 
     def _set_pretrained_model_parameters(self, config: dict) -> None:
@@ -179,10 +201,12 @@ class EphysGPTModelConfig(BaseModelConfig):
     def _set_input_parameters(self, config: dict) -> None:
         self.embedding_dim = config.get("embedding_dim", 64)
         self.n_tokens = config.get("n_tokens", 128)
+        self.n_sessions = config.get("n_sessions", None)
         self.token_embedding_dim = config.get("token_embedding_dim", None)
         self.pos_embedding_dim = config.get("pos_embedding_dim", None)
         self.pos_embedding_type = config.get("pos_embedding_type", "absolute")
         self.channel_embedding_dim = config.get("channel_embedding_dim", None)
+        self.channel_embedding_type = config.get("channel_embedding_type", "group")
         self.extra_labels = [Label(**label) for label in config.get("extra_labels", [])]
 
     def _set_decoder_parameters(self, config: dict) -> None:
@@ -206,6 +230,9 @@ class EphysGPTModelConfig(BaseModelConfig):
         self.dropout = config.get("dropout", 0.0)
         self.norm_type = config.get("norm_type", "layer")
         self.n_groups = config.get("n_groups", None)
+
+    def _set_prediction_head_parameters(self, config: dict) -> None:
+        self.prediction_type = config.get("prediction_type", "token")
 
     def _set_loss_parameters(self, config: dict) -> None:
         self.loss_sequence_length = config.get(
