@@ -22,6 +22,7 @@ from osl_foundation.inference.layers import (
     MultiHeadPASSTALayer,
     NormalizationLayer,
     PositionEmbedding,
+    SessionChannelEmbeddingLayer,
 )
 from osl_foundation.utils.sampling import sample_from_logits
 from osl_foundation.utils.testing import create_random_tokens
@@ -55,19 +56,72 @@ class CrossEntropyLossLayer(tf.keras.layers.Layer):
     top_k : list, optional
         List of top k values to calculate the accuracy for.
         By default only top 1 accuracy is calculated.
+    class_weights : dict, optional
+        Weights of the classes for the cross-entropy loss.
     """
 
     def __init__(
         self,
         loss_sequence_length: int,
         top_k: list = None,
+        class_weights: dict = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.loss_sequence_length = loss_sequence_length
         self.top_k = top_k or [1]
+        self.class_weights = class_weights
 
-    def call(self, inputs, **kwargs):
+    def _macro_f1(self, y_true, y_pred_logits) -> tf.Tensor:
+        """
+        Compute macro-averaged F1 for a binary (2-class) problem.
+
+        y_true:  (...,)               int32  in {0,1}
+        y_pred_logits: (..., 2)       float32 in raw logits
+        """
+        # Convert logits → predicted class id
+        y_pred = tf.argmax(y_pred_logits, axis=-1, output_type=tf.int32)
+
+        # Flatten so we don’t need to worry about time/channel dims
+        y_true = tf.reshape(y_true, [-1])
+        y_pred = tf.reshape(y_pred, [-1])
+
+        # Per-class true-positives, false-positives, false-negatives
+        tp = []
+        fp = []
+        fn = []
+        for c in (0, 1):
+            y_true_c = tf.equal(y_true, c)
+            y_pred_c = tf.equal(y_pred, c)
+
+            tp.append(
+                tf.reduce_sum(
+                    tf.cast(tf.logical_and(y_true_c, y_pred_c), self.dtype)
+                )
+            )
+            fp.append(
+                tf.reduce_sum(
+                    tf.cast(tf.logical_and(tf.logical_not(y_true_c), y_pred_c), self.dtype)
+                )
+            )
+            fn.append(
+                tf.reduce_sum(
+                    tf.cast(tf.logical_and(y_true_c, tf.logical_not(y_pred_c)), self.dtype)
+                )
+            )
+
+        tp = tf.stack(tp)
+        fp = tf.stack(fp)
+        fn = tf.stack(fn)
+
+        precision = tf.math.divide_no_nan(tp, tp + fp)
+        recall    = tf.math.divide_no_nan(tp, tp + fn)
+        f1        = tf.math.divide_no_nan(2 * precision * recall, precision + recall)
+
+        # macro-average across the two classes
+        return tf.reduce_mean(f1), precision, recall
+
+    def call(self, inputs, training=None, **kwargs):
         y_pred, y_true = inputs
         # y_true.shape = (batch_size, sequence_length, n_channels)
         # y_pred.shape = (batch_size, latent_sequence_length, n_channels, n_tokens)
@@ -81,12 +135,30 @@ class CrossEntropyLossLayer(tf.keras.layers.Layer):
         loss = tf.keras.metrics.sparse_categorical_crossentropy(
             y_true, y_pred, from_logits=True
         )
+
+        # Apply class weights if provided
+        if training and self.class_weights is not None:
+            weights = tf.constant(
+                [self.class_weights.get(i, 1.0) for i in range(y_pred.shape[-1])],
+                dtype=loss.dtype,
+            )
+            weights = tf.gather(weights, y_true)
+            loss = loss * weights  # shape: (batch_size, loss_sequence_length, n_channels)
+
         self.add_loss(loss)
         for k in self.top_k:
             accuracy = tf.keras.metrics.sparse_top_k_categorical_accuracy(
                 y_true, y_pred, k=k
             )
             self.add_metric(accuracy, name=f"top_{k}")
+
+        if y_pred.shape[-1] == 2:  # only add when prediction_type == "binary"
+            f1_macro, precision, recall = self._macro_f1(y_true, y_pred)
+            self.add_metric(f1_macro, name="f1_macro")
+            self.add_metric(precision[0], name="precision_c0")
+            self.add_metric(precision[1], name="precision_c1")
+            self.add_metric(recall[0], name="recall_c0")
+            self.add_metric(recall[1], name="recall_c1")
 
         return tf.expand_dims(loss, -1), y_pred
 
@@ -106,6 +178,8 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         Length of the input sequence.
     n_channels : int
         Number of channels in the input data.
+    n_sessions : int
+        Number of sessions or subjects in the input data.
     token_embedding_dim : int, optional
         Dimension of the token embeddings. If None, it is set to embedding_dim.
     pos_embedding_dim : int, optional
@@ -115,6 +189,11 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         absolute position embeddings.
     channel_embedding_dim : int, optional
         Dimension of the channel embeddings. If None, it is set to embedding_dim.
+    channel_embedding_type : str, optional
+        Type of the channel embeddings. Defaults to "group", which broadcasts the
+        channel embeddings across the sequence length.
+    prediction_type : str, optional
+        Type of the prediction head. Defaults to "token", which predicts the next token.
     extra_labels : List[Label], optional
         List of extra labels to add to the embeddings.
     """
@@ -125,10 +204,13 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         n_tokens: int,
         sequence_length: int,
         n_channels: int,
+        n_sessions: int = None,
         token_embedding_dim: int = None,
         pos_embedding_dim: int = None,
         pos_embedding_type: str = "absolute",
         channel_embedding_dim: int = None,
+        channel_embedding_type: str = "group",
+        prediction_type: str = "token",
         extra_labels: List[Label] = None,
         pretrained_layer: tf.keras.layers.Layer = None,
         **kwargs,
@@ -138,12 +220,17 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         self.n_tokens = n_tokens
         self.sequence_length = sequence_length
         self.n_channels = n_channels
+        self.n_sessions = n_sessions
         self.token_embedding_dim = token_embedding_dim
         self.pos_embedding_dim = pos_embedding_dim
         self.pos_embedding_type = pos_embedding_type
         self.channel_embedding_dim = channel_embedding_dim
+        self.channel_embedding_type = channel_embedding_type
+        self.prediction_type = prediction_type
         self.extra_labels = extra_labels
         self.use_pretrained_layer = pretrained_layer is not None
+
+        self.extra_labels_name = [label.name for label in extra_labels]
 
         # ---------- Initialize layers ----------
 
@@ -175,9 +262,17 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
                 )
 
             # The channel embedding layer
-            self.channel_embedding_layer = PositionEmbedding(
-                sequence_length=n_channels, trainable=True
-            )
+            if channel_embedding_type == "group":
+                self.channel_embedding_layer = PositionEmbedding(
+                    sequence_length=n_channels, trainable=True
+                )
+            elif channel_embedding_type == "session":
+                self.channel_embedding_layer = SessionChannelEmbeddingLayer(
+                    session_dim=n_sessions,
+                    channel_dim=n_channels,
+                    trainable=True,
+                )
+            
             self.channel_embedding_output_layer = (
                 IdentityLayer()
                 if channel_embedding_dim is None
@@ -253,10 +348,29 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         )
         # channels.shape = (batch_size, sequence_length, n_channels, channel_embedding_dim)
 
-        embeddings += self.channel_embedding_output_layer(
-            self.channel_embedding_layer(channels, training=training_1),
-            training=training_1,
-        )
+        if self.channel_embedding_type == "group":
+            embeddings += self.channel_embedding_output_layer(
+                self.channel_embedding_layer(channels, training=training_1),
+                training=training_1,
+            )
+        elif self.channel_embedding_type == "session":
+            # Extract the subject/session label tensor from extra_labels
+            label_dict = {
+                name: tensor for name, tensor in zip(self.extra_labels_name, extra_labels)
+            }
+            session_labels = None
+            if "session_id" in label_dict:
+                session_labels = label_dict["session_id"]
+            elif "subject_id" in label_dict:
+                session_labels = label_dict["subject_id"]
+            else:
+                raise ValueError("Neither 'session_id' nor 'subject_id' found in extra_labels.")
+            if self.prediction_type == "token":
+                session_labels = session_labels[:, :-1]
+            embeddings += self.channel_embedding_output_layer(
+                self.channel_embedding_layer(channels, session_labels, training=training_1),
+                training=training_1,
+            )
         # embeddings.shape = (batch_size, sequence_length, n_channels, embedding_dim)
 
         # ---------- Extra embeddings ---------- #
@@ -267,7 +381,10 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
         ):
             # label.shape = (batch_size, sequence_length + 1)
 
-            label = tf.expand_dims(label[:, :-1], -1)
+            if self.prediction_type == "token":
+                label = tf.expand_dims(label[:, :-1], -1)
+            elif self.prediction_type == "binary":
+                label = tf.expand_dims(label, -1)
             # label.shape = (batch_size, sequence_length, 1)
 
             embeddings += output_layer(
@@ -319,6 +436,8 @@ class DecoderLayer(tf.keras.layers.Layer):
         Type of normalization layer to use.
     n_groups : int, optional
         Number of groups for group normalization.
+    prediction_type : str, optional
+        Type of the prediction head. Defaults to "token", which predicts the next token.
     """
 
     def __init__(
@@ -341,6 +460,7 @@ class DecoderLayer(tf.keras.layers.Layer):
         dropout: float,
         norm_type: str,
         n_groups: int = None,
+        prediction_type: str = "token",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -370,6 +490,7 @@ class DecoderLayer(tf.keras.layers.Layer):
                 pos_embedding_type,
                 channel_attention_dropout,
                 within_channel_attention_dropout,
+                prediction_type,
             )
             for i in range(n_layers)
         ]
@@ -665,10 +786,13 @@ class EphysGPT(BaseModel):
             config.n_tokens,
             config.sequence_length,
             config.n_channels,
+            config.n_sessions,
             config.token_embedding_dim,
             config.pos_embedding_dim,
             config.pos_embedding_type,
             config.channel_embedding_dim,
+            config.channel_embedding_type,
+            config.prediction_type,
             config.extra_labels,
             pretrained_layer=pretrained_layer,
             name="input_embedding",
@@ -698,6 +822,7 @@ class EphysGPT(BaseModel):
                 config.dropout,
                 config.norm_type,
                 config.n_groups,
+                config.prediction_type,
                 name="decoder",
             )
 
@@ -706,23 +831,43 @@ class EphysGPT(BaseModel):
         if "prediction_head" in self.pretrained_layers:
             return self.pretrained_model.model.get_layer("prediction_head")
         else:
-            return tf.keras.layers.Dense(config.n_tokens, name="prediction_head")
+            if config.prediction_type == "token":
+                return tf.keras.layers.Dense(config.n_tokens, name="prediction_head")
+            elif config.prediction_type == "binary":
+                return tf.keras.Sequential(
+                [
+                    tf.keras.layers.Dense(
+                        config.n_tokens, activation="gelu" # EDIT: may abstract activation out
+                    ),
+                    tf.keras.layers.Dense(2),
+                ], name="prediction_head"
+            )
 
     def _build_model(self) -> tf.keras.Model:
         config = self.config.model_config
 
         # ---------- Inputs ---------- #
+        if config.prediction_type == "token":
+            data_shape = (config.sequence_length + 1, config.n_channels)
+        elif config.prediction_type == "binary":
+            data_shape = (config.sequence_length, config.n_channels)
+        
         data = tf.keras.layers.Input(
-            shape=(config.sequence_length + 1, config.n_channels),
+            shape=data_shape,
             dtype=tf.int32,
             name="data",
         )
 
+        if config.prediction_type == "token":
+            extra_label_shape = (config.sequence_length + 1,)
+        elif config.prediction_type == "binary":
+            extra_label_shape = (config.sequence_length,)
+        
         extra_labels = []
         for label in config.extra_labels:
             extra_labels.append(
                 tf.keras.layers.Input(
-                    shape=(config.sequence_length + 1,),
+                    shape=extra_label_shape,
                     dtype=tf.int32,
                     name=label.name,
                 )
@@ -736,13 +881,22 @@ class EphysGPT(BaseModel):
         loss_layer = CrossEntropyLossLayer(
             config.loss_sequence_length,
             config.top_k,
+            class_weights={0: 2.3035579218113904, 1: 0.6386148994587955}, # EDIT: need to make it as an arugment
             name="loss",
         )
 
         # ---------- Forward Pass ---------- #
 
-        # Shift the tokens
-        x, y_true = shift_token_layer(data)
+        if config.prediction_type == "token":
+            # Shift the tokens
+            x, y_true = shift_token_layer(data)
+        elif config.prediction_type == "binary":
+            x = data
+            y_true = tf.keras.layers.Input(
+                shape=(config.sequence_length, config.n_channels),
+                dtype=tf.int32,
+                name="y_true",
+            )
         # x.shape = (batch_size, sequence_length, n_channels)
         # y_true.shape = (batch_size, sequence_length, n_channels)
 
@@ -760,12 +914,17 @@ class EphysGPT(BaseModel):
         )
         # y_pred.shape = (batch_size, latent_sequence_length, n_channels, n_tokens)
 
+        y_pred = tf.reduce_mean(y_pred, axis=2)
+
         # Calculate the loss
         loss, y_pred = loss_layer([y_pred, y_true])
 
         # ---------- Model ---------- #
+        inputs = [data] + extra_labels
+        if config.prediction_type == "binary":
+            inputs.append(y_true)
         return tf.keras.Model(
-            inputs=[data] + extra_labels, outputs=[loss, y_pred], name="ephys_gpt"
+            inputs=inputs, outputs=[loss, y_pred], name="ephys_gpt"
         )
 
     @tf.function
