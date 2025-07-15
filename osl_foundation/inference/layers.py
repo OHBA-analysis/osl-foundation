@@ -433,6 +433,58 @@ class PositionEmbedding(tf.keras.layers.Layer):
         return tf.broadcast_to(position_embeddings, inputs_shape)
 
 
+class SessionChannelEmbeddingLayer(tf.keras.layers.Layer):
+    """
+    Layer for learning session- or subject-specific channel embeddings.
+
+    Parameters
+    ----------
+    session_dim : int
+        Number of sessions or subjects.
+    channel_dim : int
+        Number of channels.
+    initializer : str, optional
+        Initializer for the position embeddings.
+    """
+
+    def __init__(
+        self,
+        session_dim : int,
+        channel_dim: int,
+        initializer: str = "glorot_uniform",
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.session_dim = session_dim
+        self.channel_dim = channel_dim
+        self.initializer = tf.keras.initializers.get(initializer)
+
+    def build(self, inputs_shape):
+        feature_size = inputs_shape[-1]
+        self.channel_embeddings = self.add_weight(
+            name="embeddings",
+            shape=[self.session_dim, self.channel_dim, feature_size],
+            initializer=self.initializer,
+            trainable=True,
+        )
+        self.built = True
+
+    def call(self, inputs, session_labels, start_index=0):
+        inputs_shape = tf.shape(inputs)
+        feature_size = inputs_shape[-1]
+        channel_dim = inputs_shape[-2]
+        # trim to match the number of channels, which might be less than
+        # the channel_dim of the layer.
+        channel_embeddings = tf.convert_to_tensor(self.channel_embeddings)
+        channel_embeddings = tf.slice(
+            channel_embeddings,
+            (0, start_index, 0),
+            (self.session_dim, channel_dim, feature_size),
+        )
+        channel_embeddings = tf.gather(channel_embeddings, session_labels)
+        return channel_embeddings
+
+
 class NormalizationLayer(tf.keras.layers.Layer):
     """
     Layer for performing normalization.
@@ -680,6 +732,8 @@ class PASSTALayer(tf.keras.layers.Layer):
         Dropout rate for within-channel attention.
         Values greater than 1.0 means no within-channel attention.
         Values less than 0.0 means no dropout.
+    prediction_type : str, optional
+        Type of the prediction head. Defaults to "token", which predicts the next token.
     """
 
     def __init__(
@@ -694,6 +748,7 @@ class PASSTALayer(tf.keras.layers.Layer):
         pos_embedding_type: str,
         channel_attention_dropout: float,
         within_channel_attention_dropout: float,
+        prediction_type: str = "token",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -705,6 +760,7 @@ class PASSTALayer(tf.keras.layers.Layer):
         self.n_patches = n_patches
         self.patch_length = patch_length
         self.unpatched_length = unpatched_length
+        self.prediction_type = prediction_type
 
         # Time attention layer
         self.time_attention_layer = TimeAttentionLayer(
@@ -717,7 +773,10 @@ class PASSTALayer(tf.keras.layers.Layer):
             pos_embedding_type,
         )
         # Mask for time attention (This is fixed).
-        self.time_attention_mask = self._compute_time_attention_mask()
+        if self.prediction_type == "token":
+            self.time_attention_mask = self._compute_time_attention_mask()
+        elif self.prediction_type == "binary":
+            self.time_attention_mask = None  # don't apply temporal mask
 
         # Channel attention layer
         self.channel_attention_layer = ChannelAttention(key_dim)
@@ -873,6 +932,8 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         Dropout rate for within-channel attention.
         Values greater than 1.0 means no within-channel attention.
         Values less than 0.0 means no dropout
+    prediction_type : str, optional
+        Type of the prediction head. Defaults to "token", which predicts the next token.
     """
 
     def __init__(
@@ -888,6 +949,7 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         pos_embedding_type: str,
         channel_attention_dropout: float,
         within_channel_attention_dropout: float,
+        prediction_type: str = "token",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -903,6 +965,7 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         self.pos_embedding_type = pos_embedding_type
         self.channel_attention_dropout = channel_attention_dropout
         self.within_channel_attention_dropout = within_channel_attention_dropout
+        self.prediction_type = prediction_type
 
         # Patch projection
         self.patch_projection = tf.keras.layers.Dense(n_heads)
@@ -925,6 +988,7 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
             pos_embedding_type,
             channel_attention_dropout,
             within_channel_attention_dropout,
+            prediction_type,
         )
 
         # Output projection
