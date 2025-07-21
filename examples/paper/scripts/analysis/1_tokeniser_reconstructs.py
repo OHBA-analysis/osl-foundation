@@ -159,9 +159,9 @@ def plot_boxplot(
         Axes object for the boxplot.
     """
     data = {
-        "data": ["Cam-CAN Train (50)"] * len(train)
-        + ["Cam-CAN Test (562)"] * len(test_camcan)
-        + ["Wakeman-Henson (114)"] * len(test_wh),
+        "data": ["Cam-CAN Train (N=50)"] * len(train)
+        + ["Cam-CAN Test (N=562)"] * len(test_camcan)
+        + ["Wakeman-Henson (N=114)"] * len(test_wh),
         "PVE": np.concatenate([train, test_camcan, test_wh]),
     }
     df = pd.DataFrame(data)

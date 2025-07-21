@@ -50,16 +50,19 @@ def get_psd() -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         data=real_data,
         sampling_frequency=250,
         frequency_range=[1, 45],
+        n_jobs=12,
     )
     _, psd_gen = static.welch_spectra(
         data=generated_data,
         sampling_frequency=250,
         frequency_range=[1, 45],
+        n_jobs=12,
     )
     _, psd_gen_ar = static.welch_spectra(
         data=list(generated_data_ar),
         sampling_frequency=250,
         frequency_range=[1, 45],
+        n_jobs=12,
     )
     return f, psd_real, psd_gen, psd_gen_ar
 
@@ -96,6 +99,7 @@ def plot_psd(
             [f] * n_channels,
             psd_mean[i],
             ax=ax,
+            y_range=[None, 0.18],
         )
         ax.set_title(titles[i], fontsize=20)
         ax.set_xlabel("Frequency (Hz)", fontsize=20)
@@ -113,6 +117,7 @@ def plot_psd(
             [psd_mean[i]],
             errors=[[psd_mean[i] - psd_std[i]], [psd_mean[i] + psd_std[i]]],
             ax=ax,
+            y_range=[None, 0.12],
         )
         ax.set_title(titles[i], fontsize=20)
         ax.set_xlabel("Frequency (Hz)", fontsize=20)
