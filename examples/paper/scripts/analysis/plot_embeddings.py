@@ -1,5 +1,6 @@
 import os
 from glob import glob
+from typing import Dict, Tuple
 
 import pandas as pd
 import numpy as np
@@ -22,8 +23,15 @@ from osl_foundation import load_model
 tf_ops.gpu_growth()
 
 
-def get_demographics():
-    """Get the demographics."""
+def get_demographics() -> pd.DataFrame:
+    """Get the demographics.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        DataFrame containing the demographics of the participants.
+    """
+
     df = pd.DataFrame(columns=["data_path", "participant_id"])
     df["data_path"] = sorted(
         glob("/well/woolrich/projects/camcan/winter23/src/sub*/sflip_parc.npy")
@@ -63,10 +71,33 @@ def get_demographics():
     return df
 
 
-def get_mapped_embeddings(train, generator_dir, save_dir):
-    """Get the mapped embeddings."""
-    generator = load_model(generator_dir, checkpoint="latest")
-    embeddings = generator.get_embeddings()
+def get_mapped_embeddings(
+    train: bool, ephys_gpt_dir: str, save_dir: str
+) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.ndarray]]:
+    """Get the mapped embeddings.
+
+    Parameters
+    ----------
+    train : bool
+        Whether to train the embeddings or load them.
+    ephys_gpt_dir : str
+        Directory containing the Ephys-GPT model.
+    save_dir : str
+        Directory to save the embeddings.
+
+    Returns
+    -------
+    pca_embeddings : Dict[str, np.ndarray]
+        Dictionary containing the PCA embeddings.
+    tsne_embeddings : Dict[str, np.ndarray]
+        Dictionary containing the t-SNE embeddings.
+    umap_embeddings : Dict[str, np.ndarray]
+        Dictionary containing the UMAP embeddings.
+    """
+    os.makedirs(save_dir, exist_ok=True)
+
+    ephys_gpt = load_model(ephys_gpt_dir, checkpoint="latest")
+    embeddings = ephys_gpt.get_embeddings()
 
     standardize = lambda x: (x - x.mean()) / x.std()
     for k, v in embeddings.items():
@@ -96,7 +127,29 @@ def get_mapped_embeddings(train, generator_dir, save_dir):
     return pca_embeddings, tsne_embeddings, umap_embeddings
 
 
-def plot_embeddings(pca_embeddings, tsne_embeddings, umap_embeddings, df, plot_dir):
+def plot_embeddings(
+    pca_embeddings: Dict[str, np.ndarray],
+    tsne_embeddings: Dict[str, np.ndarray],
+    umap_embeddings: Dict[str, np.ndarray],
+    df: pd.DataFrame,
+    plot_dir: str,
+) -> None:
+    """
+    Plot the embeddings using PCA, t-SNE, and UMAP.
+
+    Parameters
+    ----------
+    pca_embeddings : Dict[str, np.ndarray]
+        Dictionary containing the PCA embeddings.
+    tsne_embeddings : Dict[str, np.ndarray]
+        Dictionary containing the t-SNE embeddings.
+    umap_embeddings : Dict[str, np.ndarray]
+        Dictionary containing the UMAP embeddings.
+    df : pd.DataFrame
+        DataFrame containing the demographics of the participants.
+    plot_dir : str
+        Directory to save the plots.
+    """
     visual_ind = [0, 1, 2, 3, 26, 27, 28, 29]
     motor_ind = [4, 5, 6, 7, 8, 30, 31, 32, 33, 34]
     parietal_ind = [15, 16, 17, 18, 19, 41, 42, 43, 44, 45]
@@ -184,7 +237,15 @@ def plot_embeddings(pca_embeddings, tsne_embeddings, umap_embeddings, df, plot_d
     plt.close(fig)
 
 
-def plot_regions_power_map(plot_dir):
+def plot_regions_power_map(plot_dir: str) -> None:
+    """
+    Plot the power map of the regions in the Glasser 52 parcellation.
+
+    Parameters
+    ----------
+    plot_dir : str
+        Directory to save the plot.
+    """
     visual_ind = [0, 1, 2, 3, 26, 27, 28, 29]
     motor_ind = [4, 5, 6, 7, 8, 30, 31, 32, 33, 34]
     parietal_ind = [15, 16, 17, 18, 19, 41, 42, 43, 44, 45]
@@ -216,7 +277,15 @@ def plot_regions_power_map(plot_dir):
     )
 
 
-def plot_regions_map(plot_dir):
+def plot_regions_map(plot_dir: str) -> None:
+    """
+    Plot the regions map of the Glasser 52 parcellation.
+
+    Parameters
+    ----------
+    plot_dir : str
+        Directory to save the plot.
+    """
     visual_ind = [0, 1, 2, 3, 26, 27, 28, 29]
     motor_ind = [4, 5, 6, 7, 8, 30, 31, 32, 33, 34]
     insular_ind = [9, 35]
@@ -280,14 +349,14 @@ def plot_regions_map(plot_dir):
 
 
 if __name__ == "__main__":
-    plot_dir = "results/plots/embeddings"
+    plot_dir = "../../plots/embeddings"
     os.makedirs(plot_dir, exist_ok=True)
-    generator_dir = "/well/woolrich/projects/foundation_models/ephys-gpt/sequence_length_80/without_channel_attention/model"
+    ephys_gpt_dir = "/well/woolrich/projects/foundation_models/ephys-gpt/sequence_length_80/without_channel_attention/model"
     train = True
 
     df = get_demographics()
     pca_embeddings, tsne_embeddings, umap_embeddings = get_mapped_embeddings(
-        train, generator_dir, "results"
+        train, ephys_gpt_dir, "../../results/embeddings"
     )
     plot_embeddings(pca_embeddings, tsne_embeddings, umap_embeddings, df, plot_dir)
     plot_regions_power_map(plot_dir)
