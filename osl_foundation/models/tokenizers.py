@@ -787,12 +787,19 @@ class MuTransformTokenizer:
         self.config = config
         self.vocab = {}
 
-    def fit(self, x: Union[Data, np.ndarray, List[np.ndarray]]) -> None:
+    def fit(
+        self,
+        x: Union[Data, np.ndarray, List[np.ndarray]],
+        clip: Union[int, float] = None,
+    ) -> None:
         if isinstance(x, Data):
             x = x.time_series(concatenate=False)
 
         if not isinstance(x, list):
             x = [x]
+
+        if clip is not None:
+            x = [np.clip(x_i, a_min=-clip, a_max=clip) for x_i in x]
 
         self.vocab["data_range"] = self.get_data_range(x)
         self.vocab["bins"] = self.get_bins()
@@ -899,11 +906,17 @@ class MuTransformTokenizer:
     def _get_bins(self) -> np.ndarray:
         n_tokens = self.config.model_config.n_tokens
 
-        # tokens 0 and n_tokens - 1 are for values < -1 and >= 1
+        # tokens 0 and n_tokens - 1 are for values <= -1 and >= 1
         # the rest n_tokens - 2 are for values in between
         # the bins are equally spaced in the range of (-1, 1)
 
         bins = np.linspace(-1, 1, n_tokens - 1)
+
+        # Add epsilon to avoid non-inclusive bin edges
+        # and to ensure the first and last bins are not empty
+        bins[0] += 1e-10
+        bins[-1] -= 1e-10
+
         return bins
 
     def get_bins(self) -> np.ndarray:
@@ -1241,7 +1254,11 @@ class StandardQuantileTokenizer:
         self.n_tokens = config.model_config.n_tokens
         self.standardize = config.model_config.standardize
 
-    def fit(self, x: Union[Data, np.ndarray, List[np.ndarray]]) -> None:
+    def fit(
+        self,
+        x: Union[Data, np.ndarray, List[np.ndarray]],
+        clip: Union[int, float] = None,
+    ) -> None:
         if isinstance(x, Data):
             x = x.time_series(concatenate=False)
 
@@ -1251,6 +1268,9 @@ class StandardQuantileTokenizer:
         if self.standardize:
             for i in range(len(x)):
                 x[i] = self._standardize(x[i])
+
+        if clip is not None:
+            x = [np.clip(x_i, a_min=-clip, a_max=clip) for x_i in x]
 
         self.vocab["bins"] = self.get_bins(x)
         self.vocab["bins_average"] = self.get_bins_average(self.vocab["bins"])
@@ -1317,14 +1337,23 @@ class StandardQuantileTokenizer:
             data = np.concatenate(data, axis=0)
         data = data.flatten()
 
-        # tokens 0 and n_tokens - 1 are for values < bins[0] and 
+        # tokens 0 and n_tokens - 1 are for values <= bins[0] and 
         # >= bins[-1]; the rest n_tokens - 2 are for values in 
         # between the bins are equally spaced in the range of 
         # (bins[0], bins[-1])
 
+        # Apply quantile binning
         bins = tfp.stats.quantiles(
-            data, num_quantiles=self.n_tokens - 1
-        )  # bin edges
+            data, num_quantiles=self.n_tokens - 2
+        )  # bin edges; bins.shape = (n_tokens -1,)
+        
+        # Match data types with MuTransformTokenizer bins
+        bins = np.asarray(bins).astype(np.float64).copy()
+        
+        # Add epsilon to avoid non-inclusive bin edges
+        # and to ensure the first and last bins are not empty
+        bins[0] += 1e-6
+        bins[-1] -= 1e-6
 
         return bins
 
