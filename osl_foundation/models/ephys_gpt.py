@@ -596,6 +596,7 @@ class EphysGPT(BaseModel):
         """Load a trained tokenizer."""
         if self.pretrained_model is not None:
             tokenizer = self.pretrained_model.tokenizer
+            tokenizer_config = tokenizer.config
         else:
             TOKENIZERS = {
                 "osl_tokenizer": OSLTokenizer,
@@ -809,6 +810,7 @@ class EphysGPT(BaseModel):
         prompt: np.ndarray = None,
         extra_labels: Dict[str, np.ndarray] = None,
         extra_channels: Dict[str, np.ndarray] = None,
+        seed: int = None,
     ) -> np.ndarray:
         """
         Generate tokens using the model.
@@ -837,6 +839,9 @@ class EphysGPT(BaseModel):
         extra_channels : Dict[np.ndarray], optional
             Dictionary of extra channels. Keys are the names of the extra channels.
             Each value must have shape (batch_size, > sequence_length + n_samples).
+        seed: int, optional
+            Random seed for generating the random prompt. Defaults to None, which
+            uses a random seed.
 
         Returns
         -------
@@ -848,8 +853,11 @@ class EphysGPT(BaseModel):
         sequence_length = self.config.model_config.sequence_length
 
         # ---------- Helper functions ---------- #
-        def _random_tokens() -> np.ndarray:
-            _rng = np.random.default_rng()
+        def _random_tokens(seed) -> np.ndarray:
+            if seed is None:
+                _rng = np.random.default_rng()
+            else:
+                _rng = np.random.default_rng(seed)
             try:
                 token_weights = self.tokenizer.vocab["total_token_counts"].astype(
                     np.float32
@@ -872,7 +880,7 @@ class EphysGPT(BaseModel):
 
         # ---------- Validation ---------- #
         if prompt is None:
-            prompt = _random_tokens()
+            prompt = _random_tokens(seed)
         elif isinstance(prompt, np.ndarray):
             if prompt.shape != (batch_size, sequence_length, n_channels):
                 if prompt.shape == (sequence_length, n_channels):
