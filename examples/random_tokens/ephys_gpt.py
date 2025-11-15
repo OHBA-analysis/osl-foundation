@@ -6,12 +6,12 @@ from osl_foundation import create_model
 
 tf_ops.gpu_growth()
 
-plot_dir = "plots/ephys_gpt"
+plot_dir = "plots/meg_gpt"
 os.makedirs(plot_dir, exist_ok=True)
 
 generator_config = f"""
     model_config:
-        name: ephys_gpt
+        name: meg_gpt
         sequence_length: 80
         n_channels: 4
         input_parameters:

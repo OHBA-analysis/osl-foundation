@@ -10,13 +10,13 @@ from osl_foundation import create_model
 tf_ops.gpu_growth()
 
 # ---------- Initialise Ephys-GPT ---------- #
-ephys_gpt_dir = "../../models/ephys-gpt"
-ephys_gpt = create_model(f"{ephys_gpt_dir}/config.yml")
-ephys_gpt.summary()
+meg_gpt_dir = "../../models/meg-gpt"
+meg_gpt = create_model(f"{meg_gpt_dir}/config.yml")
+meg_gpt.summary()
 
 # ---------- Load data ---------- #
 tfrecord_dir = "../../data/tfrecords"
-batch_size = ephys_gpt.config.training_config.batch_size
+batch_size = meg_gpt.config.training_config.batch_size
 train_data, val_data = load_tfrecord_dataset(
     tfrecord_dir,
     batch_size=batch_size,
@@ -26,7 +26,7 @@ train_data, val_data = load_tfrecord_dataset(
 )
 
 # ---------- Train Ephys-GPT ---------- #
-ephys_gpt.fit(
+meg_gpt.fit(
     train_data,
     validation_data=val_data,
     tokenize=False,

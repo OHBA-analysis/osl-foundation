@@ -279,7 +279,7 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
 
 class DecoderLayer(tf.keras.layers.Layer):
     """
-    Layer for the decoder of the EphysGPT model.
+    Layer for the decoder of the MEGGPT model.
 
     Parameters
     ----------
@@ -444,9 +444,9 @@ class DecoderLayer(tf.keras.layers.Layer):
         return x
 
 
-class EphysGPT(BaseModel):
+class MEGGPT(BaseModel):
     """
-    EphysGPT model for electrophysiology data.
+    MEGGPT model for electrophysiology data.
 
     Parameters
     ----------
@@ -639,7 +639,7 @@ class EphysGPT(BaseModel):
         pretrained_model_checkpoint = (
             self.config.model_config.pretrained_model_checkpoint
         )
-        pretrained_model = EphysGPT.load_model(
+        pretrained_model = MEGGPT.load_model(
             pretrained_model_path,
             pretrained_model_checkpoint,
             strategy=self.config.training_config.strategy,
@@ -766,7 +766,7 @@ class EphysGPT(BaseModel):
 
         # ---------- Model ---------- #
         return tf.keras.Model(
-            inputs=[data] + extra_labels, outputs=[loss, y_pred], name="ephys_gpt"
+            inputs=[data] + extra_labels, outputs=[loss, y_pred], name="meg_gpt"
         )
 
     @tf.function

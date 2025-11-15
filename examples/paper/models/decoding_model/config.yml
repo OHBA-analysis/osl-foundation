@@ -1,6 +1,6 @@
 model_config:
   pretrained_model:
-    model_path: ../../models/ephys-gpt
+    model_path: ../../models/meg-gpt
     checkpoint: latest
     pretrained_layers:
       - input_embedding
@@ -27,7 +27,7 @@ model_config:
   loss_parameters:
     loss_sequence_length: 8
   n_channels: 52
-  name: ephys_gpt
+  name: meg_gpt
   sequence_length: 80
 training_config:
   batch_size: 16

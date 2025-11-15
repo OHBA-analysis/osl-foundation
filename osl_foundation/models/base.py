@@ -111,7 +111,7 @@ class BaseModel:
                 )
 
             sequence_length = self.config.model_config.sequence_length
-            if self.config.model_config.name == "ephys_gpt":
+            if self.config.model_config.name == "meg_gpt":
                 sequence_length += 1
 
             # Data object -> list of Dataset if concatenate=False

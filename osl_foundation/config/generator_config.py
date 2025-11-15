@@ -25,8 +25,8 @@ class Label:
 
 
 @dataclass
-class EphysGPTModelConfig(BaseModelConfig):
-    name: str = "ephys_gpt"
+class MEGGPTModelConfig(BaseModelConfig):
+    name: str = "meg_gpt"
 
     # ---------- Pretrained model ---------- #
     pretrained_model_path: str = None

@@ -88,7 +88,7 @@ def get_psd() -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     real_data = [d[:15000] for d in real_data.time_series()]
 
     generated_data_dir = "../../data/generated_data"
-    with open(f"{generated_data_dir}/ephys-gpt.pkl", "rb") as f:
+    with open(f"{generated_data_dir}/meg-gpt.pkl", "rb") as f:
         generated_data = pickle.load(f)
 
     f, psd_real = static.welch_spectra(
@@ -264,7 +264,7 @@ def get_features(
 
         # Load generated data
         generated_data_dir = "../../data/generated_data"
-        with open(f"{generated_data_dir}/ephys-gpt.pkl", "rb") as f:
+        with open(f"{generated_data_dir}/meg-gpt.pkl", "rb") as f:
             generated_data = pickle.load(f)
 
         # Trim the original data to match the length of the generated data

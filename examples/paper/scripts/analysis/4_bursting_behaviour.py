@@ -61,7 +61,7 @@ def prepare_data(channel: int) -> Tuple[Data, Data, Data]:
     """
 
     generated_data_dir = "../../data/generated_data"
-    with open(f"{generated_data_dir}/ephys-gpt.pkl", "rb") as f:
+    with open(f"{generated_data_dir}/meg-gpt.pkl", "rb") as f:
         gen_data = pickle.load(f)
 
     with open(f"{generated_data_dir}/ar_model.pkl", "rb") as f:
@@ -166,11 +166,11 @@ def plot_psd(results_dir: str, plot_dir: str) -> None:
     os.makedirs(plot_dir, exist_ok=True)
 
     real_psd = np.load(f"{results_dir}/real/spectra/psd.npy")
-    gen_psd = np.load(f"{results_dir}/ephys-gpt/spectra/psd.npy")
+    gen_psd = np.load(f"{results_dir}/meg-gpt/spectra/psd.npy")
     gen_ar_psd = np.load(f"{results_dir}/ar_model/spectra/psd.npy")
     f = np.load(f"{results_dir}/real/spectra/f.npy")
 
-    gen_psd = gen_psd[:, get_order(f"{results_dir}/ephys-gpt")]
+    gen_psd = gen_psd[:, get_order(f"{results_dir}/meg-gpt")]
     gen_ar_psd = gen_ar_psd[:, get_order(f"{results_dir}/ar_model")]
 
     real_psd = np.mean(real_psd, axis=2)
@@ -310,11 +310,11 @@ def plot_summary_stats(results_dir, plot_dir) -> None:
     real_lt = np.load(f"{results_dir}/real/summary_stats/lt.npy")
     real_features = np.transpose([real_bc, real_intv, real_lt], (1, 0, 2))
 
-    gen_bc = np.load(f"{results_dir}/ephys-gpt/summary_stats/bc.npy")
-    gen_intv = np.load(f"{results_dir}/ephys-gpt/summary_stats/intv.npy")
-    gen_lt = np.load(f"{results_dir}/ephys-gpt/summary_stats/lt.npy")
+    gen_bc = np.load(f"{results_dir}/meg-gpt/summary_stats/bc.npy")
+    gen_intv = np.load(f"{results_dir}/meg-gpt/summary_stats/intv.npy")
+    gen_lt = np.load(f"{results_dir}/meg-gpt/summary_stats/lt.npy")
     gen_features = np.transpose([gen_bc, gen_intv, gen_lt], (1, 0, 2))
-    gen_features = gen_features[:, :, get_order(f"{results_dir}/ephys-gpt")]
+    gen_features = gen_features[:, :, get_order(f"{results_dir}/meg-gpt")]
 
     gen_ar_bc = np.load(f"{results_dir}/ar_model/summary_stats/bc.npy")
     gen_ar_intv = np.load(f"{results_dir}/ar_model/summary_stats/intv.npy")
@@ -537,7 +537,7 @@ if __name__ == "__main__":
     """
     for data, name in zip(
         [real_data, gen_data, ar_gen_data],
-        ["real", "ephys-gpt", "ar_model"],
+        ["real", "meg-gpt", "ar_model"],
     ):
         run_pipeline(
             config,

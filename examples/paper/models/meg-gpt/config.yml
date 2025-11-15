@@ -24,7 +24,7 @@ model_config:
   loss_parameters:
     loss_sequence_length: 8
   n_channels: 52
-  name: ephys_gpt
+  name: meg_gpt
   sequence_length: 80
   tokenizer_path: ../../models/tokenizer
 training_config:
@@ -34,4 +34,4 @@ training_config:
     learning_rate: 1.0e-05
   multi_gpu: True
   checkpoint:
-    save_dir: ../../models/ephys-gpt
+    save_dir: ../../models/meg-gpt
