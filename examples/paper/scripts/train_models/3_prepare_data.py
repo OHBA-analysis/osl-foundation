@@ -1,5 +1,5 @@
 """
-This script is for preparing the training data for Ephys-GPT.
+This script is for preparing the training data for MEG-GPT.
 Session ID is added as an extra input and TFRecords are saved for training.
 """
 

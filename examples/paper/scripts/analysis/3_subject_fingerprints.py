@@ -74,7 +74,7 @@ def get_psd() -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         Power spectral density of the real data.
         Shape is (n_sessions, n_channels, n_frequencies).
     psd_gen : np.ndarray
-        Power spectral density of the generated data from Ephys-GPT.
+        Power spectral density of the generated data from MEG-GPT.
         Shape is (n_sessions, n_channels, n_frequencies).
     """
     real_data_dir = "/well/woolrich/projects/camcan/spring23/src"
@@ -433,9 +433,9 @@ def plot_pairwise_distance(
             vmax=vmax,
             square=True,
         )
-        ax1.set_title("Ephys-GPT vs Ephys-GPT", fontsize=25, weight="bold")
-        ax1.set_xlabel("Ephys-GPT Subjects", fontsize=20, weight="bold")
-        ax1.set_ylabel("Ephys-GPT Subjects", fontsize=20, weight="bold")
+        ax1.set_title("MEG-GPT vs MEG-GPT", fontsize=25, weight="bold")
+        ax1.set_xlabel("MEG-GPT Subjects", fontsize=20, weight="bold")
+        ax1.set_ylabel("MEG-GPT Subjects", fontsize=20, weight="bold")
 
         # Third heatmap
         ax2 = fig.add_subplot(gs[2])
@@ -452,8 +452,8 @@ def plot_pairwise_distance(
         cbar = ax2.collections[0].colorbar
         cbar.ax.tick_params(labelsize=20)
 
-        ax2.set_title("Real Data vs Ephys-GPT", fontsize=25, weight="bold")
-        ax2.set_xlabel("Ephys-GPT Subjects", fontsize=20, weight="bold")
+        ax2.set_title("Real Data vs MEG-GPT", fontsize=25, weight="bold")
+        ax2.set_xlabel("MEG-GPT Subjects", fontsize=20, weight="bold")
         ax2.set_ylabel("Real Data Subjects", fontsize=20, weight="bold")
 
         ax0.tick_params(labelsize=15)
@@ -524,7 +524,7 @@ def plot_accuracy_curve(
         osld_plotting.plot_line(
             [range(1, n_subjects + 1), range(1, n_subjects + 1)],
             [np.arange(1, n_subjects + 1) / n_subjects, accuracies],
-            labels=["Random", "Ephys-GPT"],
+            labels=["Random", "MEG-GPT"],
             ax=ax,
         )
         fig.savefig(f"{plot_dir}/{metric}_accuracy_curve.png")

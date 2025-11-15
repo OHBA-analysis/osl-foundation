@@ -81,7 +81,7 @@ def get_mapped_embeddings(
     train : bool
         Whether to train the embeddings or load them.
     meg_gpt_dir : str
-        Directory containing the Ephys-GPT model.
+        Directory containing the MEG-GPT model.
     save_dir : str
         Directory to save the embeddings.
 

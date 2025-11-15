@@ -18,7 +18,7 @@ def generate_data(
     batch_size: int = 32,
     **kwargs,
 ) -> List[np.ndarray]:
-    """Generate data using the Ephys-GPT.
+    """Generate data using the MEG-GPT.
 
     Parameters
     ----------
@@ -59,13 +59,13 @@ def generate_data(
 
 if __name__ == "__main__":
     """
-    Generate data using a trained Ephys-GPT model.
+    Generate data using a trained MEG-GPT model.
     """
     generator_dir = "../../models/meg-gpt"
     save_dir = "../../data/generated_data"
     os.makedirs(save_dir, exist_ok=True)
 
-    # Generate data using the Ephys-GPT foundation model
+    # Generate data using the MEG-GPT foundation model
     generated_data = generate_data(
         generator_dir,
         sessions=612,

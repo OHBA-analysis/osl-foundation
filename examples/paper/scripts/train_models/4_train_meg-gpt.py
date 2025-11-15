@@ -1,5 +1,5 @@
 """
-This script is for training Ephys-GPT on the tokenized Cam-CAN
+This script is for training MEG-GPT on the tokenized Cam-CAN
 resting-state dataset.
 """
 
@@ -9,7 +9,7 @@ from osl_foundation import create_model
 
 tf_ops.gpu_growth()
 
-# ---------- Initialise Ephys-GPT ---------- #
+# ---------- Initialise MEG-GPT ---------- #
 meg_gpt_dir = "../../models/meg-gpt"
 meg_gpt = create_model(f"{meg_gpt_dir}/config.yml")
 meg_gpt.summary()
@@ -25,7 +25,7 @@ train_data, val_data = load_tfrecord_dataset(
     concatenate=True,
 )
 
-# ---------- Train Ephys-GPT ---------- #
+# ---------- Train MEG-GPT ---------- #
 meg_gpt.fit(
     train_data,
     validation_data=val_data,
