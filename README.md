@@ -20,7 +20,7 @@ mamba env create -f envs/oslf.yml
 conda activate oslf
 pip install -e .
 ```
-Note, MEG-GPT requires TensorFlow 2.11.
+Note, MEG-GPT requires TensorFlow 2.11 and comes with [osl-dynamics](https://github.com/OHBA-analysis/osl-dynamics) (v2.1.8).
 
 #### BMRC Cluster (Oxford)
 
