@@ -6,18 +6,13 @@ Preprint: https://arxiv.org/abs/2510.18080.
 
 ## Installation
 
-We recommend using Mamba (`mamba`) to install osl-foundation. First install Miniforge3 (`conda`):
+We recommend using `mamba` to install osl-foundation, which can be installed with:
 ```
 wget "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
 bash Miniforge3-$(uname)-$(uname -m).sh
 rm Miniforge3-$(uname)-$(uname -m).sh
 ```
-Then install `mamba` with:
-```
-conda install -n base -c conda-forge mamba
-```
-
-osl-foundation can be installed with:
+Then osl-foundation can be installed with:
 ```
 git clone https://github.com/OHBA-analysis/osl-foundation.git
 cd osl-foundation
@@ -27,15 +22,13 @@ pip install -e .
 ```
 Note, MEG-GPT requires TensorFlow 2.11.
 
-### Oxford-specific computers
-
-#### Biomedical Research Computing (BMRC) Cluster
+#### BMRC Cluster (Oxford)
 
 `conda`/`mamba` are available as a software module:
 ```
 module load Miniforge3
 ```
-and osl-foundation can be installed with:
+osl-foundation can be installed with:
 ```
 git clone https://github.com/OHBA-analysis/osl-foundation.git
 cd osl-foundation
@@ -46,17 +39,6 @@ pip install -e .
 Note, the following CUDA module needs to be loaded on BMRC to use TensorFlow:
 ```
 module load cuDNN/8.4.1.50-CUDA-11.7.0
-```
-
-#### hbaws
-
-First install `conda`/`mamba` using the instructions above, then install osl-foundation with:
-```
-git clone https://github.com/OHBA-analysis/osl-foundation.git
-cd osl-foundation
-mamba env create -f envs/hbaws.yml
-conda activate oslf
-pip install -e .
 ```
 
 ## Usage
