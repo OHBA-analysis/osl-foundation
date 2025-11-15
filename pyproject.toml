@@ -1,3 +1,9 @@
+# Configuration file for packaging
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "osl-foundation"
 version = "0.0.1"
@@ -13,3 +19,6 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/OHBA-analysis/osl-foundation"
 Issues = "https://github.com/OHBA-analysis/osl-foundation/issues"
+
+[tool.setuptools.packages.find]
+include = ["osl_foundation"]
