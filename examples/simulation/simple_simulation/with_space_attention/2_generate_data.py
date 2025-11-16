@@ -1,4 +1,3 @@
-import numpy as np
 import pickle
 
 from osl_dynamics.inference import tf_ops
@@ -17,7 +16,7 @@ generator = load_model(generator_dir, checkpoint="latest")
 # ---------- Generate data using the generator ---------- #
 generated_data = generator.generate_data(
     n_samples=2048,
-    top_p=0.95,
+    top_p=0.99,
     batch_size=20,
 )
 pickle.dump(generated_data, open(f"{generator_dir}/generated_data.pkl", "wb"))

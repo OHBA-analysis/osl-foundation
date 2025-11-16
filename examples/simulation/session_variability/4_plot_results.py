@@ -30,7 +30,7 @@ data = Data(data_files)
 data.standardize()
 
 # ---------- Load generator ---------- #
-generator = load_model(generator_dir)
+generator = load_model(generator_dir, checkpoint="latest")
 
 # ---------- Reconstructed data from the tokenizer ---------- #
 tokens = generator.tokenizer.tokenize_data(data)
@@ -40,7 +40,7 @@ if generate_data:
     # ---------- Generate data using the generator ---------- #
     generated_data = generator.generate_data(
         n_samples=2048,
-        top_k=int(generator.config.model_config.n_tokens * 0.8),
+        top_p=0.99,
         batch_size=len(data_files),
         extra_labels={"session_id": np.arange(len(data_files))},
     )
