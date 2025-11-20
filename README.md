@@ -1,6 +1,6 @@
 # OHBA Software Library: Foundation Model Toolbox
 
-This repository contains a tokeniser and foundation model (MEG-GPT) for parcellated MEG data.
+This repository contains a TensorFlow-based tokeniser and foundation model (MEG-GPT) for parcellated MEG data.
 
 Preprint: https://arxiv.org/abs/2510.18080.
 
@@ -44,3 +44,20 @@ module load cuDNN/8.4.1.50-CUDA-11.7.0
 ## Usage
 
 See the [examples](https://github.com/OHBA-analysis/osl-foundation/tree/main/examples) directory.
+
+#### Load the pre-trained models (tokenizer, MEG-GPT)
+
+First download the model weights (which are hosted on [Hugging Face](https://huggingface.co/OHBA-analysis/MEG-GPT/tree/main)):
+```
+git clone https://huggingface.co/OHBA-analysis/MEG-GPT models
+```
+The tokenizer can be loaded with:
+```
+from osl_foundation import load_model
+
+tokenizer = load_model("models/tokenizer")
+```
+and the MEG-GPT model can be loaded with:
+```
+meg_gpt = load_model("models/meg-gpt", checkpoint="latest")
+```
