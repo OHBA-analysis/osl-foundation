@@ -51,6 +51,12 @@ First download the model weights (which are hosted on [Hugging Face](https://hug
 ```
 git clone https://huggingface.co/OHBA-analysis/MEG-GPT models
 ```
+Next, fetch the real weight files with Git LFS:
+```
+cd models
+git lfs install --local
+git lfs pull
+```
 The tokenizer can be loaded with:
 ```
 from osl_foundation import load_model
