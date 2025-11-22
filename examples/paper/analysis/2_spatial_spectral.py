@@ -23,7 +23,7 @@ def get_psd() -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         Power spectral density of the real data.
         Shape is (n_sessions, n_channels, n_frequencies).
     psd_gen : array
-        Power spectral density of the generated data from Ephys-GPT.
+        Power spectral density of the generated data from MEG-GPT.
         Shape is (n_sessions, n_channels, n_frequencies).
     psd_gen_ar : array
         Power spectral density of the generated data from the AR model.
@@ -40,7 +40,7 @@ def get_psd() -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     real_data = [d[:15000] for d in real_data.time_series()]
 
     generated_data_dir = "../../data/generated_data"
-    with open(f"{generated_data_dir}/ephys-gpt.pkl", "rb") as f:
+    with open(f"{generated_data_dir}/meg-gpt.pkl", "rb") as f:
         generated_data = pickle.load(f)
 
     with open(f"{generated_data_dir}/ar_model.pkl", "rb") as f:
@@ -198,7 +198,7 @@ if __name__ == "__main__":
         psd_gen_ar,
         f=f,
         plot_dir=plot_dir,
-        titles=["Real", "Ephys-GPT", "AR"],
+        titles=["Real", "MEG-GPT", "AR"],
     )
 
     # Plot power maps

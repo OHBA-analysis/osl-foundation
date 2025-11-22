@@ -72,7 +72,7 @@ def get_demographics() -> pd.DataFrame:
 
 
 def get_mapped_embeddings(
-    train: bool, ephys_gpt_dir: str, save_dir: str
+    train: bool, meg_gpt_dir: str, save_dir: str
 ) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.ndarray]]:
     """Get the mapped embeddings.
 
@@ -80,8 +80,8 @@ def get_mapped_embeddings(
     ----------
     train : bool
         Whether to train the embeddings or load them.
-    ephys_gpt_dir : str
-        Directory containing the Ephys-GPT model.
+    meg_gpt_dir : str
+        Directory containing the MEG-GPT model.
     save_dir : str
         Directory to save the embeddings.
 
@@ -96,8 +96,8 @@ def get_mapped_embeddings(
     """
     os.makedirs(save_dir, exist_ok=True)
 
-    ephys_gpt = load_model(ephys_gpt_dir, checkpoint="latest")
-    embeddings = ephys_gpt.get_embeddings()
+    meg_gpt = load_model(meg_gpt_dir, checkpoint="latest")
+    embeddings = meg_gpt.get_embeddings()
 
     standardize = lambda x: (x - x.mean()) / x.std()
     for k, v in embeddings.items():
@@ -351,12 +351,12 @@ def plot_regions_map(plot_dir: str) -> None:
 if __name__ == "__main__":
     plot_dir = "../../plots/embeddings"
     os.makedirs(plot_dir, exist_ok=True)
-    ephys_gpt_dir = "/well/woolrich/projects/foundation_models/ephys-gpt/sequence_length_80/without_channel_attention/model"
+    meg_gpt_dir = "/well/woolrich/projects/foundation_models/meg-gpt/sequence_length_80/without_channel_attention/model"
     train = True
 
     df = get_demographics()
     pca_embeddings, tsne_embeddings, umap_embeddings = get_mapped_embeddings(
-        train, ephys_gpt_dir, "../../results/embeddings"
+        train, meg_gpt_dir, "../../results/embeddings"
     )
     plot_embeddings(pca_embeddings, tsne_embeddings, umap_embeddings, df, plot_dir)
     plot_regions_power_map(plot_dir)

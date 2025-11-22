@@ -1,5 +1,4 @@
 import os
-from glob import glob
 
 from osl_dynamics.inference import tf_ops
 from osl_dynamics.data import load_tfrecord_dataset

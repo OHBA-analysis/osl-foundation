@@ -48,6 +48,8 @@ plotting.plot_aec(
 )
 
 # Plot Time frequency content of original, reconstructed and generated data
+n_samples = 6000  # 60 seconds
+
 original_data = np.concatenate(data.time_series())
 reconstructed_data = np.concatenate(reconstructed_data)
 generated_data = np.concatenate(generated_data)
@@ -57,7 +59,7 @@ plotting.plot_time_frequency(
     reconstructed_data,
     generated_data,
     sampling_frequency=100,
-    n_samples=30000,  # 60 seconds
+    n_samples=n_samples,
     titles=["Original", "Reconstructed", "Generated"],
     filename=f"{plot_dir}/time_frequency.png",
 )
@@ -73,7 +75,7 @@ ax_3 = fig.add_subplot(3, 1, 3)
 plotting.plot_time_series_summary(
     original_data[:, 0],
     sampling_frequency=100,
-    n_samples=30000,  # 60 seconds
+    n_samples=n_samples,
     axes=[ax_1[0], ax_2[0], ax_3],
     color="black",
     label="Original",
@@ -81,7 +83,7 @@ plotting.plot_time_series_summary(
 plotting.plot_time_series_summary(
     reconstructed_data[:, 0],
     sampling_frequency=100,
-    n_samples=30000,  # 60 seconds
+    n_samples=n_samples,
     axes=[ax_1[1], ax_2[1], ax_3],
     color="green",
     label="Reconstructed",
@@ -89,7 +91,7 @@ plotting.plot_time_series_summary(
 plotting.plot_time_series_summary(
     generated_data[:, 0],
     sampling_frequency=100,
-    n_samples=30000,  # 60 seconds
+    n_samples=n_samples,
     axes=[ax_1[2], ax_2[2], ax_3],
     color="red",
     label="Generated",
@@ -116,7 +118,7 @@ ax_3 = fig.add_subplot(3, 1, 3)
 plotting.plot_time_series_summary(
     original_data[:, 2],
     sampling_frequency=100,
-    n_samples=30000,  # 60 seconds
+    n_samples=n_samples,
     axes=[ax_1[0], ax_2[0], ax_3],
     color="black",
     label="Original",
@@ -124,7 +126,7 @@ plotting.plot_time_series_summary(
 plotting.plot_time_series_summary(
     reconstructed_data[:, 2],
     sampling_frequency=100,
-    n_samples=30000,  # 60 seconds
+    n_samples=n_samples,
     axes=[ax_1[1], ax_2[1], ax_3],
     color="green",
     label="Reconstructed",
@@ -132,7 +134,7 @@ plotting.plot_time_series_summary(
 plotting.plot_time_series_summary(
     generated_data[:, 2],
     sampling_frequency=100,
-    n_samples=30000,  # 60 seconds
+    n_samples=n_samples,
     axes=[ax_1[2], ax_2[2], ax_3],
     color="red",
     label="Generated",

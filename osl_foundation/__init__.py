@@ -1,16 +1,16 @@
 import logging
-from pkg_resources import DistributionNotFound, get_distribution
+from importlib.metadata import PackageNotFoundError, version
 
 from osl_foundation.config import get_config
 from osl_foundation.models import create_model, load_model
 
 # Setup the version
 try:
-    __version__ = get_distribution("osl-foundation").version
-except DistributionNotFound:
+    __version__ = version("osl-foundation")
+except PackageNotFoundError:
     __version__ = "unknown"
 finally:
-    del get_distribution, DistributionNotFound
+    del version, PackageNotFoundError
 
 # Configure logging
 logging.basicConfig(

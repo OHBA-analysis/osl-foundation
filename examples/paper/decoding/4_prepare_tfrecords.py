@@ -15,9 +15,9 @@ tokenized_data.add_session_labels(
     "session_id", np.arange(tokenized_data.n_sessions), "categorical"
 )
 
-ephys_gpt_dir = "../../models/ephys-gpt"
-ephys_gpt_config = get_config(f"{ephys_gpt_dir}/config.yml")
-sequence_length = ephys_gpt_config.model_config.sequence_length
+meg_gpt_dir = "../../models/meg-gpt"
+meg_gpt_config = get_config(f"{meg_gpt_dir}/config.yml")
+sequence_length = meg_gpt_config.model_config.sequence_length
 
 tfrecords_dir = "../../data/wh_tfrecords"
 os.makedirs(tfrecords_dir, exist_ok=True)

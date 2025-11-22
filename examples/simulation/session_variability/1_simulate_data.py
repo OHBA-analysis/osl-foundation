@@ -1,7 +1,5 @@
 import os
-
 import numpy as np
-
 from osl_foundation.simulation.bursts import Bursts
 
 # ---------- Directories ---------- #

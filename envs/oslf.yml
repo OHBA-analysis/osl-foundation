@@ -1,0 +1,25 @@
+name: oslf
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10.14
+  - pip=25.3
+  - jupyter==1.1.1
+  - matplotlib==3.10.1
+  - mne==1.9.0
+  - nibabel==5.3.2
+  - nilearn==0.12.1
+  - numpy==1.26.4
+  - osfclient==0.0.5
+  - pandas==2.3.3
+  - pyyaml==6.0.3
+  - pqdm==0.2.0
+  - scipy==1.15.2
+  - scikit-learn==1.7.2
+  - seaborn==0.13.2
+  - tqdm==4.67.1
+  - pip:
+    - tensorflow==2.11.0
+    - tensorflow-probability==0.19.0
+    - osl-dynamics==2.1.8
+    - git-lfs==1.6

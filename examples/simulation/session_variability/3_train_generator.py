@@ -29,7 +29,7 @@ data.standardize()
 # ---------- Build generator ---------- #
 generator_config = f"""
     model_config:
-        name: ephys_gpt
+        name: meg_gpt
         tokenizer_path: {tokenizer_dir}
         sequence_length: 80
         n_channels: {data.n_channels}

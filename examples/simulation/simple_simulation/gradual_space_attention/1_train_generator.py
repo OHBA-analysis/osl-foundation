@@ -1,8 +1,4 @@
 import os
-from glob import glob
-
-import tensorflow as tf
-import numpy as np
 
 from osl_dynamics.inference import tf_ops
 from osl_dynamics.data import load_tfrecord_dataset
@@ -29,6 +25,10 @@ train_data, val_data = load_tfrecord_dataset(
     drop_last_batch=True,
     concatenate=True,
 )
+
+# Only select the data as inputs (don't include extra channels of mode time course)
+train_data = train_data.map(lambda x: {"data": x["data"]})
+val_data = val_data.map(lambda x: {"data": x["data"]})
 
 # ---------- Fit generator ---------- #
 generator.fit(

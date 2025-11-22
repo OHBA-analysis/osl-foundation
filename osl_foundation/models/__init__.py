@@ -10,13 +10,13 @@ from osl_foundation.models.tokenizers import (
     MuTransformTokenizer,
     StandardQuantileTokenizer,
 )
-from osl_foundation.models.ephys_gpt import EphysGPT
+from osl_foundation.models.meg_gpt import MEGGPT
 
 models = {
     "osl_tokenizer": OSLTokenizer,
     "mu_transform_tokenizer": MuTransformTokenizer,
     "standard_quantile_tokenizer": StandardQuantileTokenizer,
-    "ephys_gpt": EphysGPT,
+    "meg_gpt": MEGGPT,
 }
 
 

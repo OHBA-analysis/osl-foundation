@@ -28,7 +28,7 @@ from osl_foundation.config.tokenizer_config import (
     MuTransformTokenizerModelConfig,
     StandardQuantileTokenizerModelConfig,
 )
-from osl_foundation.config.generator_config import EphysGPTModelConfig
+from osl_foundation.config.generator_config import MEGGPTModelConfig
 
 
 @dataclass
@@ -49,7 +49,7 @@ class Config:
     model_config: Union[
         BaseModelConfig,
         OSLTokenizerModelConfig,
-        EphysGPTModelConfig,
+        MEGGPTModelConfig,
         MuTransformTokenizerModelConfig,
         StandardQuantileTokenizerModelConfig,
     ] = None
@@ -244,7 +244,7 @@ def get_model_config(
 ) -> Union[
     BaseModelConfig,
     OSLTokenizerModelConfig,
-    EphysGPTModelConfig,
+    MEGGPTModelConfig,
     MuTransformTokenizerModelConfig,
     StandardQuantileTokenizerModelConfig,
 ]:
@@ -263,7 +263,7 @@ def get_model_config(
     """
     MODEL_CONFIGS = {
         "osl_tokenizer": OSLTokenizerModelConfig,
-        "ephys_gpt": EphysGPTModelConfig,
+        "meg_gpt": MEGGPTModelConfig,
         "mu_transform_tokenizer": MuTransformTokenizerModelConfig,
         "standard_quantile_tokenizer": StandardQuantileTokenizerModelConfig,
     }
@@ -278,7 +278,7 @@ def get_model_config(
         )
 
     model_config = MODEL_CONFIGS[name]()
-    if name == "osl_tokenizer" or name == "ephys_gpt":
+    if name == "osl_tokenizer" or name == "meg_gpt":
         model_config.set_n_channels(config.get("n_channels", None))
         model_config.set_sequence_length(config.get("sequence_length", 256))
     model_config.set_config(config)

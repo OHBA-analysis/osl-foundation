@@ -1,11 +1,13 @@
+# Configuration file for packaging
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "osl-foundation"
 version = "0.0.1"
-authors = [
-    { name = "Rukuang Huang", email = "rukuang.huang@psych.ox.ac.uk" },
-    { name = "Mark Woolrich", email = "mark.woolrich@ohba.ox.ac.uk" },
-]
-description = "Foundation models for electrophysiological data analysis developed by OHBA Analysis Group"
+description = "OHBA Software Libary: Foundation Models"
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
@@ -17,3 +19,6 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/OHBA-analysis/osl-foundation"
 Issues = "https://github.com/OHBA-analysis/osl-foundation/issues"
+
+[tool.setuptools.packages.find]
+include = ["osl_foundation"]

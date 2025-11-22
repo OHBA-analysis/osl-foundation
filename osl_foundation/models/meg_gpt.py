@@ -279,7 +279,7 @@ class InputEmbeddingLayer(tf.keras.layers.Layer):
 
 class DecoderLayer(tf.keras.layers.Layer):
     """
-    Layer for the decoder of the EphysGPT model.
+    Layer for the decoder of the MEGGPT model.
 
     Parameters
     ----------
@@ -444,9 +444,9 @@ class DecoderLayer(tf.keras.layers.Layer):
         return x
 
 
-class EphysGPT(BaseModel):
+class MEGGPT(BaseModel):
     """
-    EphysGPT model for electrophysiology data.
+    MEGGPT model for electrophysiology data.
 
     Parameters
     ----------
@@ -507,7 +507,6 @@ class EphysGPT(BaseModel):
 
         # If step_per_epoch is passed, repeat the dataset indefinitely
         steps_per_epoch = get_argument(self.model.fit, "steps_per_epoch", args, kwargs)
-        repeat_count = 1 if steps_per_epoch is None else -1
 
         dataset = self.make_dataset(
             tokenized_x,
@@ -516,7 +515,6 @@ class EphysGPT(BaseModel):
             step_size=step_size,
             drop_last_batch=True,
             validation_split=validation_split,
-            repeat_count=repeat_count,
         )
         if validation_split is None:
             args, kwargs = replace_argument(
@@ -639,7 +637,7 @@ class EphysGPT(BaseModel):
         pretrained_model_checkpoint = (
             self.config.model_config.pretrained_model_checkpoint
         )
-        pretrained_model = EphysGPT.load_model(
+        pretrained_model = MEGGPT.load_model(
             pretrained_model_path,
             pretrained_model_checkpoint,
             strategy=self.config.training_config.strategy,
@@ -766,7 +764,7 @@ class EphysGPT(BaseModel):
 
         # ---------- Model ---------- #
         return tf.keras.Model(
-            inputs=[data] + extra_labels, outputs=[loss, y_pred], name="ephys_gpt"
+            inputs=[data] + extra_labels, outputs=[loss, y_pred], name="meg_gpt"
         )
 
     @tf.function
