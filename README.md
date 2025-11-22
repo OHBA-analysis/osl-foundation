@@ -58,6 +58,6 @@ Then the models can be loaded with:
 ```
 from osl_foundation import load_model
 
-tokenizer = load_model("models/tokenizer")
-meg_gpt = load_model("models/meg-gpt", checkpoint="latest")
+tokenizer = load_model("tokenizer")
+meg_gpt = load_model("meg-gpt", checkpoint="latest")
 ```
