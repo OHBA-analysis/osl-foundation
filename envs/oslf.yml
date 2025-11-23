@@ -18,8 +18,8 @@ dependencies:
   - scikit-learn==1.7.2
   - seaborn==0.13.2
   - tqdm==4.67.1
+  - git-lfs=3.7.1
   - pip:
     - tensorflow==2.11.0
     - tensorflow-probability==0.19.0
     - osl-dynamics==2.1.8
-    - git-lfs==1.6

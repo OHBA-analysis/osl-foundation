@@ -58,7 +58,7 @@ dependencies:
   - double-conversion=3.3.1=h5888daf_0
   - edfio=0.4.11=pyhd8ed1ab_0
   - eeglabio=0.1.2=pyhd8ed1ab_0
-  - exceptiongroup=1.3.0=pyhd8ed1ab_0
+  - exceptiongroup=1.3.1=pyhd8ed1ab_0
   - executing=2.2.1=pyhd8ed1ab_0
   - ffmpeg=7.1.1=gpl_h127656b_906
   - font-ttf-dejavu-sans-mono=2.37=hab24e00_0
@@ -77,6 +77,7 @@ dependencies:
   - gdk-pixbuf=2.44.4=h2b0a6b4_0
   - gettext=0.25.1=h3f43e3d_1
   - gettext-tools=0.25.1=h3f43e3d_1
+  - git-lfs=3.7.1=h6138981_0
   - gl2ps=1.4.2=hae5d5c5_1
   - glib=2.86.2=hbcf1ec1_0
   - glib-tools=2.86.2=hf516916_0
@@ -143,12 +144,12 @@ dependencies:
   - libasprintf=0.25.1=h3f43e3d_1
   - libasprintf-devel=0.25.1=h3f43e3d_1
   - libass=0.17.3=hba53ac1_1
-  - libblas=3.11.0=1_h4a7cf45_openblas
+  - libblas=3.11.0=2_h4a7cf45_openblas
   - libbrotlicommon=1.2.0=h09219d5_0
   - libbrotlidec=1.2.0=hd53d788_0
   - libbrotlienc=1.2.0=h02bd7ab_0
   - libcap=2.77=h3ff7636_0
-  - libcblas=3.11.0=1_h0358290_openblas
+  - libcblas=3.11.0=2_h0358290_openblas
   - libclang-cpp20.1=20.1.8=default_h99862b1_4
   - libclang-cpp21.1=21.1.0=default_h99862b1_1
   - libclang13=21.1.0=default_h746c552_1
@@ -179,7 +180,7 @@ dependencies:
   - libhwloc=2.12.1=default_h3d81e11_1000
   - libiconv=1.18=h3b78370_2
   - libjpeg-turbo=3.1.2=hb03c661_0
-  - liblapack=3.11.0=1_h47877c9_openblas
+  - liblapack=3.11.0=2_h47877c9_openblas
   - libllvm20=20.1.8=hecd9e04_0
   - libllvm21=21.1.0=hecd9e04_0
   - liblzma=5.8.1=hb9d3cd8_2
@@ -459,7 +460,6 @@ dependencies:
       - dm-tree==0.1.9
       - flatbuffers==25.9.23
       - gast==0.4.0
-      - git-lfs==1.6
       - google-auth==2.43.0
       - google-auth-oauthlib==0.4.6
       - google-pasta==0.2.0
