@@ -3,11 +3,12 @@ from typing import Union
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
+import keras
 
 
 def rnn_layer(
     rnn_type: str, rnn_n_units: int, return_sequences: bool = True
-) -> tf.keras.layers.Layer:
+) -> keras.layers.Layer:
     """
     Create an RNN layer.
 
@@ -22,22 +23,22 @@ def rnn_layer(
 
     Returns
     -------
-    rnn_layer : tf.keras.layers.Layer
+    rnn_layer : keras.layers.Layer
         RNN layer.
     """
     if rnn_type == "gru":
-        return tf.keras.layers.GRU(
+        return keras.layers.GRU(
             rnn_n_units, return_sequences=return_sequences, stateful=False
         )
     elif rnn_type == "lstm":
-        return tf.keras.layers.LSTM(
+        return keras.layers.LSTM(
             rnn_n_units, return_sequences=return_sequences, stateful=False
         )
     else:
         raise ValueError(f"Unknown RNN type: {rnn_type}")
 
 
-class IdentityLayer(tf.keras.layers.Layer):
+class IdentityLayer(keras.layers.Layer):
     """
     Identity layer.
     This layer directly returns the input tensor.
@@ -47,10 +48,10 @@ class IdentityLayer(tf.keras.layers.Layer):
         return inputs
 
 
-class MSELossLayer(tf.keras.layers.Layer):
+class MSELossLayer(keras.layers.Layer):
     """
     Layer for computing the mean squared error loss.
-    This is a wrapper around tf.keras.losses.MeanSquaredError.
+    This is a wrapper around keras.losses.MeanSquaredError.
     """
 
     def __init__(self, **kwargs):
@@ -63,7 +64,7 @@ class MSELossLayer(tf.keras.layers.Layer):
         return tf.expand_dims(loss, -1)
 
 
-class SinusoidalPositionalEncodingLayer(tf.keras.layers.Layer):
+class SinusoidalPositionalEncodingLayer(keras.layers.Layer):
     """
     Layer for generating sinusoidal positional encoding for position embeddings.
     Implemented as in "Attention is All You Need" (Vaswani et al., 2017), and partly
@@ -121,7 +122,7 @@ class SinusoidalPositionalEncodingLayer(tf.keras.layers.Layer):
         return positions
 
 
-class RotaryPositionEmbeddingLayer(tf.keras.layers.Layer):
+class RotaryPositionEmbeddingLayer(keras.layers.Layer):
     """
     Layer for generating Rotary Position Embedding (RoPE). Implemented as in
     "RoFormer: Enhanced Transformer with Rotary Position Embedding" (Su et al., 2022), and
@@ -234,7 +235,7 @@ class RotaryPositionEmbeddingLayer(tf.keras.layers.Layer):
         return rope
 
 
-class ALiBiPositionEmbeddingLayer(tf.keras.layers.Layer):
+class ALiBiPositionEmbeddingLayer(keras.layers.Layer):
     """
     Layer for generating Attention with Linear Biases (ALiBi) position embedding. Implemented
     based on "Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation"
@@ -342,7 +343,7 @@ class ALiBiPositionEmbeddingLayer(tf.keras.layers.Layer):
         return attention_with_alibi
 
 
-class TokenWeightsLayer(tf.keras.layers.Layer):
+class TokenWeightsLayer(keras.layers.Layer):
     """
     Layer for computing token weights.
 
@@ -358,10 +359,10 @@ class TokenWeightsLayer(tf.keras.layers.Layer):
         super().__init__(**kwargs)
 
         self.output_dim = output_dim
-        self.dense_layer = tf.keras.layers.Dense(output_dim, activation=activation)
-        self.activation_layer = tf.keras.layers.Activation(activation)
-        self.norm_layer = tf.keras.layers.LayerNormalization()
-        self.temperature = tf.keras.Variable(0.0, trainable=False)
+        self.dense_layer = keras.layers.Dense(output_dim, activation=activation)
+        self.activation_layer = keras.layers.Activation(activation)
+        self.norm_layer = keras.layers.LayerNormalization()
+        self.temperature = keras.Variable(0.0, trainable=False)
 
     def call(self, inputs, training=None, **kwargs):
         ell = self.activation_layer(self.dense_layer(inputs))
@@ -387,7 +388,7 @@ class TokenWeightsLayer(tf.keras.layers.Layer):
         return token_weight
 
 
-class PositionEmbedding(tf.keras.layers.Layer):
+class PositionEmbedding(keras.layers.Layer):
     """
     Layer for learning position embeddings.
 
@@ -407,7 +408,7 @@ class PositionEmbedding(tf.keras.layers.Layer):
     ):
         super().__init__(**kwargs)
         self.sequence_length = sequence_length
-        self.initializer = tf.keras.initializers.get(initializer)
+        self.initializer = keras.initializers.get(initializer)
 
     def build(self, inputs_shape):
         feature_size = inputs_shape[-1]
@@ -434,7 +435,7 @@ class PositionEmbedding(tf.keras.layers.Layer):
         return tf.broadcast_to(position_embeddings, inputs_shape)
 
 
-class NormalizationLayer(tf.keras.layers.Layer):
+class NormalizationLayer(keras.layers.Layer):
     """
     Layer for performing normalization.
 
@@ -451,13 +452,13 @@ class NormalizationLayer(tf.keras.layers.Layer):
     def __init__(self, norm_type: str = "layer", n_groups=None, **kwargs):
         super().__init__(**kwargs)
         if norm_type == "layer":
-            self.norm_layer = tf.keras.layers.LayerNormalization()
+            self.norm_layer = keras.layers.LayerNormalization()
         elif norm_type == "batch":
-            self.norm_layer = tf.keras.layers.BatchNormalization()
+            self.norm_layer = keras.layers.BatchNormalization()
         elif norm_type == "group":
             if n_groups is None:
                 raise ValueError("n_groups must be specified for group normalization")
-            self.norm_layer = tf.keras.layers.GroupNormalization(groups=n_groups)
+            self.norm_layer = keras.layers.GroupNormalization(groups=n_groups)
         else:
             raise ValueError(f"Unknown normalization type: {norm_type}")
 
@@ -468,11 +469,14 @@ class NormalizationLayer(tf.keras.layers.Layer):
         # Set the built flag to True
         super().build(input_shape)
 
+    def compute_output_shape(self, input_shape):
+        return self.norm_layer.compute_output_shape(input_shape)
+
     def call(self, inputs, **kwargs):
         return self.norm_layer(inputs)
 
 
-class TimeAttentionLayer(tf.keras.layers.Layer):
+class TimeAttentionLayer(keras.layers.Layer):
     """
     Layer for performing time attention.
 
@@ -588,7 +592,7 @@ class TimeAttentionLayer(tf.keras.layers.Layer):
         return output
 
 
-class ChannelAttentionLayer(tf.keras.layers.Layer):
+class ChannelAttentionLayer(keras.layers.Layer):
     """
     Layer for performing channel attention.
 
@@ -657,7 +661,7 @@ class ChannelAttentionLayer(tf.keras.layers.Layer):
         return output
 
 
-class PASSTALayer(tf.keras.layers.Layer):
+class PASSTALayer(keras.layers.Layer):
     """
     The Perceiver AR Separable Space-Time self-Attention (PASSTA) layer.
     This layer performs space-time attention on the input tensor.
@@ -731,10 +735,10 @@ class PASSTALayer(tf.keras.layers.Layer):
         self.channel_attention_layer = ChannelAttentionLayer(key_dim)
 
         # Channel attention dropouts
-        self.channel_attention_dropout = tf.keras.Variable(
+        self.channel_attention_dropout = keras.Variable(
             channel_attention_dropout, trainable=False
         )
-        self.within_channel_attention_dropout = tf.keras.Variable(
+        self.within_channel_attention_dropout = keras.Variable(
             within_channel_attention_dropout, trainable=False
         )
 
@@ -871,7 +875,7 @@ class PASSTALayer(tf.keras.layers.Layer):
         return output
 
 
-class MultiHeadPASSTALayer(tf.keras.layers.Layer):
+class MultiHeadPASSTALayer(keras.layers.Layer):
     """
     The Multi-head PASSTA layer.
 
@@ -935,13 +939,13 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         self.within_channel_attention_dropout = within_channel_attention_dropout
 
         # Patch projection
-        self.patch_projection = tf.keras.layers.Dense(n_heads)
+        self.patch_projection = keras.layers.Dense(n_heads)
 
         # Input projections
-        self.time_patched_projection = tf.keras.layers.Dense(2 * self.model_dim)
-        self.time_unpatched_projection = tf.keras.layers.Dense(2 * self.model_dim)
-        self.time_query_projection = tf.keras.layers.Dense(self.model_dim)
-        self.channel_projection = tf.keras.layers.Dense(2 * self.model_dim)
+        self.time_patched_projection = keras.layers.Dense(2 * self.model_dim)
+        self.time_unpatched_projection = keras.layers.Dense(2 * self.model_dim)
+        self.time_query_projection = keras.layers.Dense(self.model_dim)
+        self.channel_projection = keras.layers.Dense(2 * self.model_dim)
 
         # PASSTA layer for time and channel attention
         self.passta_layer = PASSTALayer(
@@ -958,7 +962,7 @@ class MultiHeadPASSTALayer(tf.keras.layers.Layer):
         )
 
         # Output projection
-        self.output_projection = tf.keras.layers.Dense(self.model_dim)
+        self.output_projection = keras.layers.Dense(self.model_dim)
 
     def _patch_x(self, x: tf.Tensor) -> tf.Tensor:
         # x.shape: (batch_size, sequence_length, n_channels, model_dim)

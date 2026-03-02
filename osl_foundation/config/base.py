@@ -4,6 +4,7 @@ from packaging import version
 from abc import abstractmethod
 
 import tensorflow as tf
+import keras
 
 if version.parse(tf.__version__) >= version.parse("2.16"):
     # Use public API
@@ -22,10 +23,10 @@ else:
 class BaseTrainingConfig:
     """Base class for training configuration."""
 
-    optimizer: tf.keras.optimizers.Optimizer = None
+    optimizer: keras.optimizers.Optimizer = None
     batch_size: int = None
     n_epochs: int = None
-    callbacks: List[tf.keras.callbacks.Callback] = None
+    callbacks: List[keras.callbacks.Callback] = None
     strategy: tf.distribute.Strategy = None
 
     def validate(self) -> None:
@@ -36,7 +37,7 @@ class BaseTrainingConfig:
         self.callbacks = self.callbacks or []
         self.strategy = self.strategy or get_strategy()
 
-    def set_optimizer(self, optimizer: tf.keras.optimizers.Optimizer) -> None:
+    def set_optimizer(self, optimizer: keras.optimizers.Optimizer) -> None:
         self.optimizer = optimizer
 
     def set_batch_size(self, batch_size: int) -> None:
@@ -45,7 +46,7 @@ class BaseTrainingConfig:
     def set_n_epochs(self, n_epochs: int) -> None:
         self.n_epochs = n_epochs
 
-    def set_callbacks(self, callbacks: List[tf.keras.callbacks.Callback]) -> None:
+    def set_callbacks(self, callbacks: List[keras.callbacks.Callback]) -> None:
         self.callbacks = callbacks
 
     def set_strategy(self, strategy: tf.distribute.Strategy) -> None:

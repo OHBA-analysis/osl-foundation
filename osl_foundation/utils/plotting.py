@@ -145,25 +145,29 @@ def plot_aec(
     if len(inputs) != len(titles):
         raise ValueError("The number of titles must match the number of data inputs.")
 
-    # Get the window size in number of samples
-    window_size = int(window_size * sampling_frequency / 1000)
+    # Get n_window - i.e. number of tpts
+    # Passed in window_size is in msecs
+    window_size = window_size / 1000 # in secs
+    n_window = int(window_size * sampling_frequency) # in num tpts
 
     # Make sure window_size is odd
-    if window_size % 2 == 0:
-        window_size += 1
+    if n_window % 2 == 0:
+        n_window += 1
 
     frequency_range = frequency_range or [None, None]
 
     methods = {
         "filter": {"low_freq": frequency_range[0], "high_freq": frequency_range[1]},
         "amplitude_envelope": {},
-        "moving_average": {"n_window": window_size},
+        "moving_average": {"n_window": n_window}, 
     }
 
     def _get_aec(data: Data) -> np.ndarray:
         data.prepare(methods)
         ts = data.time_series()
-        aec = np.mean(static.functional_connectivity(ts), axis=0)
+        aec = static.functional_connectivity(ts)
+        if len(aec.shape) == 3:
+            aec = np.mean(aec, axis=0)
         return aec - np.eye(aec.shape[0])
 
     if axes is None:
@@ -316,17 +320,25 @@ def plot_history(
         if key not in keywords:
             continue
         if "loss" in key:
+            if "val_loss"==key:
+                col = "b--"
+            elif "loss"==key:
+                col = "b."
+            elif "val" in key:
+                col = "g--"
+            else:
+                col = "g."
             ax1.plot(
                 epoch_indices,
                 history[key][epoch_start - 1 : epoch_end],
-                "b" if "val" in key else "r",
+                col,
                 label=key,
             )
         elif "top" in key:
             ax2.plot(
                 epoch_indices,
                 history[key][epoch_start - 1 : epoch_end],
-                "b--" if "val" in key else "r--",
+                "r--" if "val" in key else "r.",
                 label=key,
             )
         else:
@@ -377,3 +389,135 @@ def plot_pve(
         plt.close(fig)
     else:
         return fig, ax
+    
+def plot_tde_corr(
+    *inputs,
+    axes: List[plt.Axes] = None,
+    titles: List[str] = None,
+    n_embeddings: int = 15,
+    n_pca_components: int = None,
+    frequency_range: list = None,
+    sampling_frequency: int,
+    cmap: str = "viridis",
+    filename: str = None,
+    cbar: bool = True,
+) -> Union[Tuple[plt.Figure, List[plt.Axes]], None]:
+    """
+    Plot the TDE correlations of the inputs.
+
+    Parameters
+    ----------
+    inputs : list
+        List of data inputs. Each input can be
+        - A path to a directory containing :code:`.npy` files. Each
+          :code:`.npy` file should be a subject or session.
+        - A list of paths to :code:`.npy`, :code:`.mat` or :code:`.fif` files.
+          Each file should be a subject or session. If a :code:`.fif` file is
+          passed is must end with :code:`'raw.fif'` or :code:`'epo.fif'`.
+        - A numpy array. The array will be treated as continuous data from the
+          same subject.
+        - A list of numpy arrays. Each numpy array should be the data for a
+          subject or session.
+    axes : list, optional
+        List of matplotlib axes to plot on. If not provided, a new figure will
+        be created.
+    titles : list, optional
+        List of titles for each input. If not provided, the titles will be
+        empty.
+    n_embeddings : int, optional
+        Number of embeddings to use for TDE. Default is 15.
+    n_pca_components : int, optional
+        Number of PCA components to use after TDE. Default is None.
+    frequency_range: list = None,
+        List of low and high frequencies (Hz) for the bandpass filter used prior 
+        to TDE
+    sampling_frequency : int
+        Sampling frequency in Hz.
+    cmap : str, optional
+        Colormap to use. Default is 'viridis'.
+    filename : str, optional
+        If provided, the figure will be saved to this filename.
+    cbar : bool, optional
+        Whether to show the colorbar. Default is True.
+
+    Returns
+    -------
+    fig : plt.Figure
+        The matplotlib figure. Only returned if :code:`filename=None`.
+    axes : List[plt.Axes]
+        List of matplotlib axes. Only returned if :code:`filename=None`.
+    """
+
+    # Validation
+    if titles is None:
+        titles = ["" for _ in range(len(inputs))]
+    if len(inputs) != len(titles):
+        raise ValueError("The number of titles must match the number of data inputs.")
+
+    if n_pca_components is None:
+        methods = {
+            "filter": {"low_freq": frequency_range[0], "high_freq": frequency_range[1]},
+            "tde": {"n_embeddings": n_embeddings},
+            "standardize": {},
+        }
+    else:
+        methods = {
+            "filter": {"low_freq": frequency_range[0], "high_freq": frequency_range[1]},
+            "tde_pca": {"n_embeddings": n_embeddings, "n_pca_components": n_pca_components},
+            "standardize": {},
+        }
+
+    def _get_tde_corr(data: Data) -> np.ndarray:
+        data.prepare(methods)
+        ts = data.time_series()
+        tde_corr = static.functional_connectivity(ts)
+        if len(tde_corr.shape) == 3:
+            tde_corr = np.mean(tde_corr, axis=0)        
+        return tde_corr
+
+    if axes is None:
+        fig, axes = plt.subplots(1, len(inputs), figsize=(5 * (len(inputs) + 1), 5))
+    else:
+        fig = axes[0].get_figure()
+
+    tde_corr4plot = []
+    tde_corr = []
+    for d in inputs:
+        n_channels = Data(d).n_channels
+
+        tcorr = _get_tde_corr(Data(d, sampling_frequency=sampling_frequency)) # n_embeddings*n_channels x n_embeddings*n_channels
+
+        tde_corr.append(tcorr)
+
+        # zero out (n_embeddings x n_embeddings) diagonal blocks
+        tcorr4plot = tcorr.copy()
+        for i in range(n_channels):
+            tcorr4plot[i*n_embeddings:(i+1)*n_embeddings, i*n_embeddings:(i+1)*n_embeddings] = 0
+
+        tde_corr4plot.append(tcorr4plot)
+
+    vmin = np.min(tde_corr4plot)
+    vmax = np.max(tde_corr4plot)
+
+    for d, i in zip(inputs, range(len(tde_corr4plot))):
+
+        n_channels = Data(d).n_channels
+
+        sns.heatmap(tde_corr4plot[i], ax=axes[i], cmap=cmap, vmin=vmin, vmax=vmax, cbar=cbar)
+        axes[i].set_title(titles[i])
+
+        # only have a label for the start of each channel block 
+        axes[i].set_xticks(np.linspace(0, (n_channels-1)*n_embeddings, n_channels))
+        axes[i].set_xticklabels(np.arange(0, n_channels))  
+        axes[i].set_yticks(np.linspace(0, (n_channels-1)*n_embeddings, n_channels))
+        axes[i].set_yticklabels(np.arange(0, n_channels)) 
+
+    if filename is not None:
+        fig.tight_layout()
+        fig.savefig(filename)
+        plt.close(fig)
+
+        return tde_corr
+
+    else:
+        return tde_corr, fig, axes

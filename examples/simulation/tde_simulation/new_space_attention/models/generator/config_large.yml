@@ -1,0 +1,41 @@
+model_config:
+  decoder_parameters:
+    dropout: 0.2
+    feed_forward_activation: gelu
+    feed_forward_dim: 100
+    model_dim: 100
+    n_heads: 4
+    n_patches_in: [100, 20, 10]
+    patch_length_in: [1, 5, 6]
+    unpatched_length_in: [0, 0, 0]
+    l_unpatched_b: [None, None, None]
+    l_patched_b: [10, None, None]
+    do_chan_attention: [False, True, True]
+    do_cross_attention: [False, False, False]
+    chan_attention_mask: [None, None, None]
+    full_channel_attention_dropout: 0.5
+    chan_attention_dim: None
+  input_parameters:
+    channel_embedding_dim: 100
+    embedding_dim: 100
+    extra_labels:
+    - label_dim: 100
+      n_classes: 20
+      name: session_id
+    pos_embedding_dim: 100
+    token_embedding_dim: 100
+  loss_parameters:
+    loss_sequence_length: 10
+    loss_sequence_length_recon_buffer: 15
+    lyapunov_beta: 10
+    lyapunov_dim: 100
+  n_channels: 52
+  name: ephys_gpt
+  tokenizer_path: /Users/woolrich/dev/results/osl-foundation/tde_simulation_large/tokenizer
+training_config:
+  batch_size: 8
+  checkpoint:
+    save_dir: /Users/woolrich/dev/results/osl-foundation/tde_simulation_large/generator
+  n_epochs: 10
+  optimizer:
+    learning_rate: 2.0e-05

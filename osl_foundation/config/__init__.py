@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from packaging import version
 
 import tensorflow as tf
+import keras
+
 import numpy as np
 import yaml
 
@@ -24,6 +26,8 @@ from osl_foundation.inference.callbacks import (
     TemperatureAnnealingCallback,
     CheckpointCallback,
     SpaceAttentionAnnealingCallback,
+    LyapunovBetaSchedulerCallback,
+    LyapunovMuSchedulerCallback,
 )
 from osl_foundation.config.base import BaseTrainingConfig, BaseModelConfig
 from osl_foundation.config.tokenizer_config import (
@@ -140,7 +144,7 @@ def get_config(configuration: Union[dict, str] = None) -> Config:
     return config
 
 
-def _deserialize_optimizer(opt_config: dict) -> tf.keras.optimizers.Optimizer:
+def _deserialize_optimizer(opt_config: dict) -> keras.optimizers.Optimizer:
     """Try the modern Keras 3 namespace first,
        then fall back to the legacy namespace.
 
@@ -151,10 +155,10 @@ def _deserialize_optimizer(opt_config: dict) -> tf.keras.optimizers.Optimizer:
     """
     try:
         # Attempt to use the Keras 3 namespace
-        return tf.keras.optimizers.get(opt_config)
+        return keras.optimizers.get(opt_config)
     except (ValueError, TypeError):
         # Fallback to the legacy namespace
-        return tf.keras.optimizers.legacy.get(opt_config)
+        return keras.optimizers.legacy.get(opt_config)
 
 
 def get_training_config(config: dict) -> BaseTrainingConfig:
@@ -234,19 +238,33 @@ def get_training_config(config: dict) -> BaseTrainingConfig:
     if "lr_decay" in config:
         lr_decay = config["lr_decay"]
         callbacks.append(
-            tf.keras.callbacks.LearningRateScheduler(
+            keras.callbacks.LearningRateScheduler(
                 lambda epoch, lr: float(learning_rate) * np.exp(-lr_decay * epoch)
             )
         )
 
     if "save_best" in config:
         save_best_kwargs = config["save_best"]
-        callbacks.append(tf.keras.callbacks.ModelCheckpoint(**save_best_kwargs))
+        callbacks.append(keras.callbacks.ModelCheckpoint(**save_best_kwargs))
 
     if "space_attention_annealing" in config:
         callbacks.append(
             SpaceAttentionAnnealingCallback(
                 **config["space_attention_annealing"],
+            )
+        )
+
+    if "lyapunov_beta_scheduler" in config:
+        callbacks.append(
+            LyapunovBetaSchedulerCallback(
+                **config["lyapunov_beta_scheduler"],
+            )
+        )
+
+    if "lyapunov_mu_scheduler" in config:
+        callbacks.append(
+            LyapunovMuSchedulerCallback(
+                **config["lyapunov_mu_scheduler"],
             )
         )
 

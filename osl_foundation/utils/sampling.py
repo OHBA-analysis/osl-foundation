@@ -50,6 +50,7 @@ def top_k_sampling(logits: tf.Tensor, k: int) -> tf.Tensor:
     sampled_tokens : tf.Tensor
         The sampled tokens. Shape: (*batch_dims).
     """
+
     # logits.shape = (*batch_dims, n_tokens)
     n_dim = len(tf.shape(logits))
 

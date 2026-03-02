@@ -11,6 +11,8 @@ class OSLTokenizerModelConfig(BaseModelConfig):
     n_tokens: int = None
     token_dim: int = None
     token_kernel_padding: str = None
+    token_use_bias: bool = None
+    token_groups: int = None
     rnn_n_units: int = None
     rnn_type: str = None
     rnn_n_layers: int = None
@@ -20,6 +22,8 @@ class OSLTokenizerModelConfig(BaseModelConfig):
         assert self.n_tokens is not None, "n_tokens must be set"
         assert self.token_dim is not None, "token_dim must be set"
         assert self.token_kernel_padding is not None, "token_kernel_padding must be set"
+        assert self.token_use_bias is not None, "token_use_bias must be set"
+        assert self.token_groups is not None, "token_groups must be set"
         assert self.rnn_n_units is not None, "rnn_n_units must be set"
         assert self.rnn_type is not None, "rnn_type must be set"
         assert self.rnn_n_layers is not None, "rnn_n_layers must be set"
@@ -31,6 +35,8 @@ class OSLTokenizerModelConfig(BaseModelConfig):
         self.n_tokens = config.get("n_tokens", 16)
         self.token_dim = config.get("token_dim", 32)
         self.token_kernel_padding = config.get("token_kernel_padding", "same")
+        self.token_use_bias = config.get("token_use_bias", True)
+        self.token_groups = config.get("token_groups", 1)
         self.rnn_n_units = config.get("rnn_n_units", 64)
         self.rnn_type = config.get("rnn_type", "gru")
         self.rnn_n_layers = config.get("rnn_n_layers", 1)

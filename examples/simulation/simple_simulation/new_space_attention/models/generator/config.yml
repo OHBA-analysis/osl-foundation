@@ -1,0 +1,61 @@
+model_config:
+  decoder_parameters:
+    dropout: 0.2
+    feed_forward_activation: gelu
+    feed_forward_dim: 100
+    model_dim: 100
+    n_heads: 4
+    n_patches_in: [100, 25, 10]
+    patch_length_in: [1, 4, 8]
+    unpatched_length_in: [0, 0, 0]
+    l_unpatched_b: [None, None, None]
+    l_patched_b: [8, None, None]
+    do_chan_attention: [False, True, True]
+    do_cross_attention: [False, False, False]
+    chan_attention_mask: [None, None, None]
+    channel_dropout_rate: 0.1
+    full_channel_attention_dropout: 0.1
+    chan_attention_channel_dropout_rate: 0.1
+    chan_attention_chandim: 2
+  input_parameters:
+    channel_embedding_dim: 4
+    embedding_dim: 50
+    extra_labels:
+    - label_dim: 20
+      n_classes: 20 
+      name: session_id
+    pos_embedding_dim: 50
+    token_embedding_dim: 50
+  loss_parameters:
+    loss_sequence_length: 8
+    lyapunov_beta: 1 # Conservative initial beta.
+    lyapunov_mu: 10 # Fixed moderate V(0) anchor weight (mu scheduler disabled below).
+    lyapunov_dim: 20
+    lyapunov_collapse_weight: 0.5 # Gentle anti-collapse pressure for minimal-impact Lyapunov.
+    lyapunov_collapse_target_var: 1.0e-04 # Keep variance floor conservative initially.
+    lyapunov_collapse_target_mean: 1.0e-04 # Conservative mean floor to reduce regularization pressure.
+  n_channels: 4
+  name: ephys_gpt
+  tokenizer_path: /Users/woolrich/dev/results/osl-foundation/simple_simulation/tokenizer
+training_config:
+  batch_size: 8
+  validation_split: 0.1
+  n_epochs: 25
+  checkpoint:
+    save_dir: /Users/woolrich/dev/results/osl-foundation/simple_simulation/generator
+  lyapunov_beta_scheduler:
+    target_ratio: 0.005 # Keep Lyapunov weak initially in simulated-data tuning.
+    adaptation_rate: 0.05 # Higher = faster beta changes.
+    min_beta: 1.0e-04 # Lower clamp for beta.
+    max_beta: 1.0 # Prevent Lyapunov loss from dominating during early tuning.
+    warmup_epochs: 5 # No adaptation during initial epochs.
+    ema_decay: 0.9 # Smoothing for ratio estimates.
+  lyapunov_mu_scheduler:
+    target_ratio: 0.1 # Target (mu * V0_loss) / core_lyapunov_loss.
+    adaptation_rate: 0.05 # Higher = faster mu changes.
+    min_mu: 0.5 # Lower clamp for mu.
+    max_mu: 10.0 # Keep V(0) anchoring modest while testing impact.
+    warmup_epochs: 5 # No adaptation during initial epochs.
+    ema_decay: 0.9 # Smoothing for ratio estimates.
+  optimizer:
+    learning_rate: 1.0e-04

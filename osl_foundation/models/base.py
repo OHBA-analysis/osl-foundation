@@ -5,6 +5,8 @@ import logging
 import pickle
 import numpy as np
 import tensorflow as tf
+import keras
+
 import matplotlib.pyplot as plt
 
 from osl_dynamics.data import Data
@@ -33,7 +35,7 @@ class BaseModel:
         config.validate()
         self._identifier = np.random.randint(100000)
         self.config = config
-        self.model: tf.keras.Model = None
+        self.model: keras.Model = None
         self.history: dict = None
 
         if strategy is not None:
@@ -62,6 +64,7 @@ class BaseModel:
         step_size: int = None,
         drop_last_batch: bool = False,
         validation_split: float = None,
+        sequence_length: int = None,
     ) -> Union[tf.data.Dataset, List[tf.data.Dataset]]:
         """
         Make a TensorFlow Dataset from an osl-dynamics Data object.
@@ -82,6 +85,9 @@ class BaseModel:
             Should we drop the last batch if it is smaller than the batch size?
         validation_split : float, optional
             Fraction of the data to use for validation.
+        sequence_length : int, optional
+            Sequence length to use for making the dataset.
+            If None, the default sequence length from the config will be used.
 
         Returns
         -------
@@ -107,7 +113,7 @@ class BaseModel:
                     + "Consider using a TFRecord dataset with Data(..., use_tfrecord=True)."
                 )
 
-            sequence_length = self.config.model_config.sequence_length
+            sequence_length = sequence_length or self.config.model_config.sequence_length
             if self.config.model_config.name == "ephys_gpt":
                 sequence_length += 1
 
@@ -147,6 +153,16 @@ class BaseModel:
 
         return outputs
 
+    def _get_n_batches(self, dataset: tf.data.Dataset) -> int:
+        """Get number of batches without exhausting the dataset when possible."""
+        cardinality_value = int(tf.data.experimental.cardinality(dataset).numpy())
+        if cardinality_value not in (
+            tf.data.experimental.UNKNOWN_CARDINALITY,
+            tf.data.experimental.INFINITE_CARDINALITY,
+        ):
+            return cardinality_value
+        return dtf.get_n_batches(dataset)
+
     def fit(self, *args, **kwargs) -> None:
         """Wrapper for the standard keras fit method.
 
@@ -155,9 +171,9 @@ class BaseModel:
         Parameters
         ----------
         args : arguments
-            Arguments for :code:`tf.keras.Model.fit()`.
+            Arguments for :code:`keras.Model.fit()`.
         kwargs : keyword arguments, optional
-            Keyword arguments for :code:`tf.keras.Model.fit()`.
+            Keyword arguments for :code:`keras.Model.fit()`.
         """
         x = get_argument(self.model.fit, "x", args, kwargs)
 
@@ -170,7 +186,7 @@ class BaseModel:
 
         # If step_per_epoch is not passed, calculate it from the dataset
         steps_per_epoch = get_argument(self.model.fit, "steps_per_epoch", args, kwargs)
-        steps_per_epoch = steps_per_epoch or dtf.get_n_batches(x)
+        steps_per_epoch = steps_per_epoch or self._get_n_batches(x)
 
         args, kwargs = replace_argument(self.model.fit, "x", x.repeat(), args, kwargs)
         args, kwargs = replace_argument(
@@ -188,7 +204,7 @@ class BaseModel:
             validation_steps = get_argument(
                 self.model.fit, "validation_steps", args, kwargs
             )
-            validation_steps = validation_steps or dtf.get_n_batches(x_val)
+            validation_steps = validation_steps or self._get_n_batches(x_val)
 
             args, kwargs = replace_argument(
                 self.model.fit, "validation_data", x_val.repeat(), args, kwargs
@@ -226,9 +242,9 @@ class BaseModel:
         # Update history
         self.history = misc.update_history(self.history, history.history)
 
-    def load_weights(self, filepath: str) -> tf.keras.Model:
+    def load_weights(self, filepath: str) -> keras.Model:
         """Load weights from a file.
-        This is a wrapper of :code:`tf.keras.Model.load_weights()`.
+        This is a wrapper of :code:`keras.Model.load_weights()`.
 
         Parameters
         ----------
@@ -237,7 +253,7 @@ class BaseModel:
 
         Returns
         -------
-        model : tf.keras.Model
+        model : keras.Model
             Model with the loaded weights.
         """
         with self.model.distribute_strategy.scope():
@@ -288,7 +304,7 @@ class BaseModel:
 
     def save_weights(self, dirname: str) -> None:
         """
-        Wrapper for :code:`tf.keras.Model.save_weights()`.
+        Wrapper for :code:`keras.Model.save_weights()`.
         """
         self.model.save_weights(f"{dirname}/model.weights.h5")
 
@@ -308,7 +324,7 @@ class BaseModel:
 
         # Save model weights if the best model is not already saved
         saved_best = any(
-            isinstance(cb, tf.keras.callbacks.ModelCheckpoint)
+            isinstance(cb, keras.callbacks.ModelCheckpoint)
             for cb in self.config.training_config.callbacks
         )
         if not saved_best:
@@ -364,7 +380,9 @@ class BaseModel:
             Directory containing the saved model.
         checkpoint : str, optional
             Path to the checkpoint file. If `latest`, the latest checkpoint will be used.
-            Defaults to None, in which case the weights will be loaded from `weights.h5`.
+            Defaults to None, in which case the latest checkpoint in
+            `dirname/checkpoints` will be used if present, otherwise
+            `model.weights.h5` is loaded.
         strategy : tf.distribute.Strategy, optional
             Distribution strategy to use for loading the model. Defaults to None.
             If None, the strategy from the config will be used.
@@ -375,21 +393,44 @@ class BaseModel:
             Loaded model.
         """
         config = cls.load_config(dirname)
+        _logger.info(
+            "Loaded config for %s from %s (sequence_length=%s, n_channels=%s, tokenizer_path=%s).",
+            getattr(config.model_config, "name", "unknown"),
+            dirname,
+            getattr(config.model_config, "sequence_length", "unknown"),
+            getattr(config.model_config, "n_channels", "unknown"),
+            getattr(config.model_config, "tokenizer_path", None),
+        )
         model = cls(config, strategy=strategy)
-        if checkpoint:
+        checkpoint_request = checkpoint if checkpoint is not None else "latest"
+        checkpoint_path = None
+        if checkpoint_request == "latest":
+            checkpoint_path = tf.train.latest_checkpoint(f"{dirname}/checkpoints")
+        elif checkpoint_request:
+            checkpoint_path = checkpoint_request
+
+        if checkpoint_path:
+            _logger.info(
+                "Loading model from TensorFlow checkpoint (request=%s) in %s",
+                checkpoint_request,
+                dirname,
+            )
             model.compile()
             model.model.optimizer.build(model.model.trainable_variables)
 
             cp = tf.train.Checkpoint(model=model.model, optimizer=model.model.optimizer)
-            if checkpoint == "latest":
-                checkpoint_path = tf.train.latest_checkpoint(f"{dirname}/checkpoints")
-            else:
-                checkpoint_path = checkpoint
             with model.model.distribute_strategy.scope():
                 status = cp.restore(checkpoint_path)
+                _logger.info("Restored model from checkpoint: %s", checkpoint_path)
                 status.assert_consumed()
         else:
-            model.load_weights(f"{dirname}/model.weights.h5")
+            if checkpoint is not None:
+                raise FileNotFoundError(
+                    f"Checkpoint request '{checkpoint_request}' could not be resolved."
+                )
+            weights_path = f"{dirname}/model.weights.h5"
+            _logger.info("Loading model weights from: %s", weights_path)
+            model.load_weights(weights_path)
 
         try:
             with open(f"{dirname}/history.pkl", "rb") as f:

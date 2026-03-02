@@ -1,17 +1,25 @@
 import os
 import numpy as np
+
+dev_dir = "/Users/woolrich/dev"
+#dev_dir = "/well/woolrich/users/vxw496"
+
+# python /Users/woolrich/dev/projects/osl-foundation/examples/simulation/simple_simulation/2_train_tokenizer.py
+
 from osl_foundation.simulation.bursts import Bursts
 
 # ---------- Directories ---------- #
-data_dir = "sim_data"
-plot_dir = "plots/sim_data"
+
+data_dir = f"{dev_dir}/results/osl-foundation/simple_simulation"
+plot_dir = f"{data_dir}/plots/"
+
 os.makedirs(data_dir, exist_ok=True)
 os.makedirs(plot_dir, exist_ok=True)
 
 # ---------- Simulation configuration ---------- #
 simulation_config = {
     "n_groups": 1,
-    "n_subjects_per_group": 20,
+    "n_subjects_per_group": 10,
     "true_freqs": np.array([7.0, 17.0]),
     "sampling_frequency": 100,
     "snr": 4.0,

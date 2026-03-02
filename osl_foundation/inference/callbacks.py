@@ -5,13 +5,14 @@ import logging
 import numpy as np
 import pickle
 import tensorflow as tf
+import keras
 
 from osl_foundation.utils.misc import update_history
 
 _logger = logging.getLogger("osl-foundation")
 
 
-class TemperatureAnnealingCallback(tf.keras.callbacks.Callback):
+class TemperatureAnnealingCallback(keras.callbacks.Callback):
     """Callback to anneal the temperature of the token weights layer.
 
     Parameters
@@ -55,7 +56,7 @@ class TemperatureAnnealingCallback(tf.keras.callbacks.Callback):
         logs["temperature"] = float(token_weights_layer.temperature.numpy())
 
 
-class CheckpointCallback(tf.keras.callbacks.Callback):
+class CheckpointCallback(keras.callbacks.Callback):
     """Callback to create checkpoints during training.
 
     Parameters
@@ -78,16 +79,18 @@ class CheckpointCallback(tf.keras.callbacks.Callback):
         self.strategy = strategy
 
     def on_train_begin(self, logs=None):
+        
         self.checkpoint = tf.train.Checkpoint(
             model=self.model, optimizer=self.model.optimizer
         )
-        checkpoint_path = tf.train.latest_checkpoint(self.checkpoint_dir)
-        if checkpoint_path:
-            _logger.info(f"Restoring from {checkpoint_path}")
-            with self.strategy.scope():
-                self.checkpoint.restore(checkpoint_path).expect_partial()
-        else:
-            os.makedirs(self.checkpoint_dir, exist_ok=True)
+        
+        #checkpoint_path = tf.train.latest_checkpoint(self.checkpoint_dir)
+        #if checkpoint_path:
+            #_logger.info(f"Restoring from {checkpoint_path}")
+            #with self.strategy.scope():
+            #    self.checkpoint.restore(checkpoint_path).expect_partial()
+        #else:
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
 
     def on_epoch_end(self, epoch, logs=None):
         if (epoch + 1) % self.save_freq == 0:
@@ -107,7 +110,7 @@ class CheckpointCallback(tf.keras.callbacks.Callback):
             pickle.dump(history, f)
 
 
-class SpaceAttentionAnnealingCallback(tf.keras.callbacks.Callback):
+class SpaceAttentionAnnealingCallback(keras.callbacks.Callback):
     """Callback to anneal the dropout rate of the space attention layers.
 
     Parameters
@@ -168,3 +171,160 @@ class SpaceAttentionAnnealingCallback(tf.keras.callbacks.Callback):
         logs["space_attention_dropout"] = attention_layers[
             0
         ].passta_layer.channel_attention_dropout.numpy()
+
+
+class LyapunovBetaSchedulerCallback(keras.callbacks.Callback):
+    """
+    Adapt lyapunov beta to target a Lyapunov/cross-entropy loss ratio.
+
+    Intuition:
+    - ratio = lyapunov_loss / cross_entropy_loss
+    - if ratio > target, decrease beta
+    - if ratio < target, increase beta
+    Updates are multiplicative in log-space and clipped to [min_beta, max_beta].
+    """
+
+    def __init__(
+        self,
+        target_ratio: float = 0.1,
+        adaptation_rate: float = 0.1,
+        min_beta: float = 1e-6,
+        max_beta: float = 10.0,
+        warmup_epochs: int = 0,
+        ema_decay: float = 0.9,
+        eps: float = 1e-12,
+    ):
+        super().__init__()
+        self.target_ratio = target_ratio
+        self.adaptation_rate = adaptation_rate
+        self.min_beta = min_beta
+        self.max_beta = max_beta
+        self.warmup_epochs = warmup_epochs
+        self.ema_decay = ema_decay
+        self.eps = eps
+        self._ema_ce = None
+        self._ema_lyap = None
+
+    def on_train_begin(self, logs=None):
+        layer = self.model.get_layer("lyapunov_loss")
+        self._ema_ce = None
+        self._ema_lyap = None
+        _logger.info(
+            "Lyapunov beta scheduler enabled: beta=%.6g target_ratio=%.4g",
+            float(layer.beta.numpy()),
+            self.target_ratio,
+        )
+
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        ce = logs.get("cross_entropy_loss")
+        lyap = logs.get("lyapunov_loss")
+        if ce is None or lyap is None:
+            return
+
+        ce = float(ce)
+        lyap = float(lyap)
+        if self._ema_ce is None:
+            # Initialize EMA with first observed epoch values.
+            self._ema_ce = ce
+            self._ema_lyap = lyap
+        else:
+            # Smooth noisy epoch-to-epoch losses before computing the control ratio.
+            self._ema_ce = self.ema_decay * self._ema_ce + (1 - self.ema_decay) * ce
+            self._ema_lyap = self.ema_decay * self._ema_lyap + (1 - self.ema_decay) * lyap
+
+        # Controlled ratio: how strong Lyapunov regularization is relative to CE loss.
+        ratio = self._ema_lyap / max(self.eps, self._ema_ce)
+        layer = self.model.get_layer("lyapunov_loss")
+        beta = float(layer.beta.numpy())
+
+        if epoch + 1 > self.warmup_epochs:
+            # log-space controller: stable multiplicative updates around target ratio.
+            log_error = np.log((ratio + self.eps) / (self.target_ratio + self.eps))
+            # ratio > target -> log_error > 0 -> beta decreases.
+            # ratio < target -> log_error < 0 -> beta increases.
+            beta = beta * np.exp(-self.adaptation_rate * log_error)
+            # Safety bounds prevent runaway growth/collapse.
+            beta = float(np.clip(beta, self.min_beta, self.max_beta))
+            layer.beta.assign(beta)
+
+        logs["lyapunov_beta"] = beta
+        logs["lyapunov_loss_ratio"] = ratio
+
+
+class LyapunovMuSchedulerCallback(keras.callbacks.Callback):
+    """
+    Adapt lyapunov mu to target V0/core-loss ratio.
+
+    Intuition:
+    - ratio = (mu * V0_loss) / core_lyapunov_loss
+    - if ratio > target, decrease mu
+    - if ratio < target, increase mu
+    Updates are multiplicative in log-space and clipped to [min_mu, max_mu].
+    """
+
+    def __init__(
+        self,
+        target_ratio: float = 0.1,
+        adaptation_rate: float = 0.1,
+        min_mu: float = 1e-6,
+        max_mu: float = 100.0,
+        warmup_epochs: int = 0,
+        ema_decay: float = 0.9,
+        eps: float = 1e-12,
+    ):
+        super().__init__()
+        self.target_ratio = target_ratio
+        self.adaptation_rate = adaptation_rate
+        self.min_mu = min_mu
+        self.max_mu = max_mu
+        self.warmup_epochs = warmup_epochs
+        self.ema_decay = ema_decay
+        self.eps = eps
+        self._ema_core = None
+        self._ema_v0 = None
+
+    def on_train_begin(self, logs=None):
+        layer = self.model.get_layer("lyapunov_loss")
+        self._ema_core = None
+        self._ema_v0 = None
+        _logger.info(
+            "Lyapunov mu scheduler enabled: mu=%.6g target_ratio=%.4g",
+            float(layer.mu.numpy()),
+            self.target_ratio,
+        )
+
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        core = logs.get("lyapunov_core_loss")
+        v0 = logs.get("lyapunov_v0_loss")
+        if core is None or v0 is None:
+            return
+
+        core = float(core)
+        v0 = float(v0)
+        if self._ema_core is None:
+            # Initialize EMA with first observed epoch values.
+            self._ema_core = core
+            self._ema_v0 = v0
+        else:
+            # Smooth noisy epoch-to-epoch losses before computing the control ratio.
+            self._ema_core = self.ema_decay * self._ema_core + (1 - self.ema_decay) * core
+            self._ema_v0 = self.ema_decay * self._ema_v0 + (1 - self.ema_decay) * v0
+
+        layer = self.model.get_layer("lyapunov_loss")
+        mu = float(layer.mu.numpy())
+        # Controlled ratio: relative weight of the V(0) anchor term.
+        ratio = (mu * self._ema_v0) / max(self.eps, self._ema_core)
+
+        if epoch + 1 > self.warmup_epochs:
+            # log-space controller: stable multiplicative updates around target ratio.
+            log_error = np.log((ratio + self.eps) / (self.target_ratio + self.eps))
+            # ratio > target -> mu decreases; ratio < target -> mu increases.
+            mu = mu * np.exp(-self.adaptation_rate * log_error)
+            # Safety bounds prevent runaway growth/collapse.
+            mu = float(np.clip(mu, self.min_mu, self.max_mu))
+            layer.mu.assign(mu)
+
+        logs["lyapunov_mu"] = mu
+        logs["lyapunov_v0_ratio"] = ratio

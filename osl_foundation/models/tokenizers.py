@@ -7,6 +7,8 @@ import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
+import keras
+
 from pqdm.threads import pqdm
 from tqdm.auto import trange, tqdm
 
@@ -22,7 +24,7 @@ from osl_foundation.utils import plotting
 _logger = logging.getLogger("osl-foundation")
 
 
-class EncoderLayer(tf.keras.layers.Layer):
+class EncoderLayer(keras.layers.Layer):
     """
     Encoder layer.
     This layer treats the channel dimension as the batch dimension
@@ -40,13 +42,16 @@ class EncoderLayer(tf.keras.layers.Layer):
 
     def __init__(self, rnn_type: str, rnn_n_layers: int, rnn_n_units: int, **kwargs):
         super().__init__(**kwargs)
-        self.rnn = tf.keras.Sequential(
+        self.rnn = keras.Sequential(
             [rnn_layer(rnn_type, rnn_n_units) for _ in range(rnn_n_layers)]
         )
-
+        self.layer_norm = keras.layers.LayerNormalization(axis=1)
+        
     def call(self, inputs, **kwargs):
         x = inputs
         # x.shape = (batch_size, sequence_length, n_channels)
+
+        x = self.layer_norm(x)
 
         # Prepare for RNN
         x = tf.transpose(x, perm=(0, 2, 1))
@@ -63,7 +68,7 @@ class EncoderLayer(tf.keras.layers.Layer):
         return x
 
 
-class Decoder(tf.keras.layers.Layer):
+class Decoder(keras.layers.Layer):
     """
     Decoder layer.
     This layer decodes the token weights to reconstruct the data.
@@ -80,6 +85,10 @@ class Decoder(tf.keras.layers.Layer):
         Dimension of the token.
     token_kernel_padding : str
         Padding for the token kernel. Can take "valid", "same", or "causal".
+    token_use_bias : bool
+        Whether to use bias in the token basis layer.
+    token_groups : int
+        Number of groups for the token basis layer.
     """
 
     def __init__(
@@ -89,22 +98,26 @@ class Decoder(tf.keras.layers.Layer):
         n_tokens: int,
         token_dim: int,
         token_kernel_padding: str,
+        token_use_bias: bool,
+        token_groups: int,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.n_channels = n_channels
         self.sequence_length = sequence_length
         self.n_tokens = n_tokens
-        self.token_basis_layer = tf.keras.layers.Conv1D(
+        self.token_basis_layer = keras.layers.Conv1D(
             filters=n_tokens,
             kernel_size=token_dim,
             padding=token_kernel_padding,
+            use_bias=token_use_bias,
+            groups=token_groups
         )
 
     def call(self, inputs):
         x = inputs
         # x.shape = (batch_size * n_channels, sequence_length, n_tokens)
-
+        
         x = tf.reduce_sum(self.token_basis_layer(x), axis=-1, keepdims=True)
         # x.shape = (batch_size * n_channels, sequence_length, 1)
 
@@ -149,11 +162,11 @@ class OSLTokenizer(BaseModel):
         Parameters
         ----------
         args : arguments
-            Arguments for :code:`tf.keras.Model.fit()`.
+            Arguments for :code:`keras.Model.fit()`.
         n_jobs : int, optional
             Number of jobs to refactor vocab, by default 1.
         kwargs : keyword arguments, optional
-            Keyword arguments for :code:`tf.keras.Model.fit()`.
+            Keyword arguments for :code:`keras.Model.fit()`.
         """
         super().fit(*args, **kwargs)
         x = get_argument(self.model.fit, "x", args, kwargs)
@@ -165,7 +178,7 @@ class OSLTokenizer(BaseModel):
         with open(f"{dirname}/vocab.pkl", "wb") as f:
             pickle.dump(self.vocab, f)
 
-    def _build_model(self) -> tf.keras.Model:
+    def _build_model(self) -> keras.Model:
         """Model definition."""
         config = self.config.model_config
 
@@ -188,13 +201,15 @@ class OSLTokenizer(BaseModel):
             config.n_tokens,
             config.token_dim,
             config.token_kernel_padding,
+            config.token_use_bias,
+            config.token_groups,
             name="decoder",
         )
         mse_loss_layer = MSELossLayer(name="mse_loss")
 
         # ---------- Forward Pass ---------- #
 
-        data = tf.keras.layers.Input(
+        data = keras.layers.Input(
             shape=(config.sequence_length, config.n_channels), name="data"
         )
         # Shape: (batch_size, sequence_length, n_channels)
@@ -220,7 +235,7 @@ class OSLTokenizer(BaseModel):
         }
         name = config.name
 
-        return tf.keras.Model(inputs=inputs, outputs=outputs, name=name)
+        return keras.Model(inputs=inputs, outputs=outputs, name=name)
 
     def _tokenize_data(
         self,
@@ -243,6 +258,9 @@ class OSLTokenizer(BaseModel):
             Whether to concatenate the tokens over all sessions, by default False.
         return_weights : bool, optional
             Whether the token weights are returned.
+        sequence_length : int, optional
+            Sequence length to use for tokenization. If None, uses the
+            sequence length defined in the model config, by default None.
         n_jobs : int, optional
             Number of jobs to run in parallel, by default 1.
 
@@ -256,25 +274,29 @@ class OSLTokenizer(BaseModel):
             Shape is (n_samples, n_channels, n_tokens).
         """
 
+        sequence_length = self.config.model_config.sequence_length
+        
         if isinstance(data, np.ndarray):
-            dataset = self.make_dataset(data, shuffle=False, concatenate=False)
+            dataset = self.make_dataset(data, shuffle=False, concatenate=False, sequence_length=sequence_length)
         else:
             raw_data = copy.deepcopy(data)
             raw_data.session_labels = {}
             raw_data.extra_channels = {}  # remove extra channels to be compatible with model structure
-            dataset = self.make_dataset(raw_data, shuffle=False, concatenate=False)
+            dataset = self.make_dataset(raw_data, shuffle=False, concatenate=False, sequence_length=sequence_length)
 
         def _tokenize_data_per_session(d):
             # Tokenize for a single session
-            tw = np.concatenate([self.model(x, training=False)["token_weights"].numpy() for x in d])
 
-            # Concatenate over sequences
-            tw = np.concatenate(tw)
-            # tw.shape = (n_samples, n_channels, n_tokens)
+            tw = np.concatenate([self.model(x, training=False)["token_weights"].numpy() for x in d])
+            # tw.shape = (batches, sequence_length, n_channels, n_tokens)
+            
+            # Concatenate batches
+            tw = np.concatenate(tw, axis=0)
+            # tw.shape = (ntotal_samples, n_channels, n_tokens)
 
             # Get the token with the maximum weight
             t = np.argmax(tw, axis=-1)
-            # t.shape = (n_samples, n_channels)
+            # t.shape = (ntotal_samples, n_channels)
 
             if return_weights:
                 return t, tw
@@ -345,6 +367,7 @@ class OSLTokenizer(BaseModel):
         config = self.config.model_config
 
         _logger.info("Refactoring vocabulary...")
+
         tokens = self._tokenize_data(data, n_jobs=n_jobs)
 
         # Count the tokens across samples and channels for each session
@@ -471,44 +494,51 @@ class OSLTokenizer(BaseModel):
             Shape of reconstructed data of each session: (n_samples, n_channels).
         """
 
+        if isinstance(tokens, Data):
+            tokens = tokens.time_series(concatenate=False)
+
         if not isinstance(tokens, list):
             tokens = [tokens]
+            list_inputted = False
+        else:
+            list_inputted = True
+        # tokens[0] is (n_samples, n_channels)
 
         n_tokens = self.config.model_config.n_tokens
         n_channels = self.config.model_config.n_channels
-        sequence_length = self.config.model_config.sequence_length
+        n_samples = np.maximum(np.minimum(tokens[0].shape[0], 300), self.config.model_config.sequence_length)
+        print('Making dataset for reconstruction... sequence length:', n_samples)
 
-        tokens = Data(tokens)
-        tokens = self.make_dataset(
-            tokens, shuffle=False, concatenate=False, drop_last_batch=False
-        )
+        tokens = Data(tokens) # tokens[0] is (n_samples, n_channels)
+        tokens = self.make_dataset(tokens, shuffle=False, concatenate=False, drop_last_batch=False, sequence_length=n_samples)
+        # tokens[0] is a tf.data.Dataset shape (B, n_samples, n_channels)
 
         token_basis_layer = self.model.get_layer("decoder").token_basis_layer
 
         def _reconstruct_data_per_session(t):
             # Reconstruct for a single session
             _reconstructed_data = []
-            for x in t:
+            for ind, x in enumerate(t):
                 x = x["data"].numpy()
-                # x.shape = (batch_size, sequence_length, n_channels)
+                # x.shape = (batch_size, n_samples, n_channels)
 
                 x = np.transpose(x, axes=(0, 2, 1))
-                # x.shape = (batch_size, n_channels, sequence_length)
+                # x.shape = (batch_size, n_channels, n_samples)
 
                 x = np.reshape(x, (-1, x.shape[-1]))
-                # x.shape = (batch_size * n_channels, sequence_length)
+                # x.shape = (batch_size * n_channels, n_samples)
 
                 x = tf.one_hot(x, n_tokens).numpy().astype(np.float32)
-                # x.shape = (batch_size * n_channels, sequence_length, n_tokens)
-
+                # x.shape = (batch_size * n_channels, n_samples, n_tokens)
+                
                 x = np.sum(token_basis_layer(x), axis=-1)
-                # x.shape = (batch_size * n_channels, sequence_length)
+                # x.shape = (batch_size * n_channels, n_samples)
 
-                x = np.reshape(x, (-1, n_channels, sequence_length))
-                # x.shape = (batch_size, n_channels, sequence_length)
+                x = np.reshape(x, (-1, n_channels, n_samples))
+                # x.shape = (batch_size, n_channels, n_samples)
 
                 x = np.transpose(x, axes=(0, 2, 1))
-                # x.shape = (batch_size, sequence_length, n_channels)
+                # x.shape = (batch_size, n_samples, n_channels)
 
                 _reconstructed_data.append(np.concatenate(x))
 
@@ -517,9 +547,13 @@ class OSLTokenizer(BaseModel):
         reconstructed_data = []
         for t in tqdm(tokens, desc="Reconstructing data", total=len(tokens)):
             reconstructed_data.append(_reconstruct_data_per_session(t))
+        # reconstructed_data[0] is (n_samples, n_channels)
 
-        if concatenate or len(reconstructed_data) == 1:
+        if concatenate or (isinstance(reconstructed_data, list) and len(reconstructed_data) == 1 and not list_inputted):
             reconstructed_data = np.concatenate(reconstructed_data)
+        
+        if list_inputted and not concatenate and not isinstance(reconstructed_data, list):
+            reconstructed_data = [reconstructed_data[0]]
 
         return reconstructed_data
 
@@ -757,10 +791,9 @@ class OSLTokenizer(BaseModel):
             true_data = _load_and_normalize_data(ground_truth_path, "tmp_true_data")
 
         # Get data reconstructed from tokens
-        tokenized_data, token_weights = self._tokenize_data(
-            original_data, return_weights=True
-        )
-        fitted_data = self._reconstruct_data(tokenized_data)
+
+        tokenized_data, token_weights = self._tokenize_data(original_data, return_weights=True)
+        fitted_data = self._reconstruct_data(tokenized_data)[0]
 
         # Plot data signals and token weights
         n_channels = min(original_data.shape[1], 3)  # number of channels to plot
@@ -987,11 +1020,32 @@ class MuTransformTokenizer:
         concatenate: bool = False,
         n_jobs: int = 1,
     ) -> Union[np.ndarray, List[np.ndarray]]:
+        '''
+        Reconstruct data from tokens.
+        Parameters
+        ----------
+        tokens : Union[osl_dynamics.data.Data, np.ndarray, List[np.ndarray]]
+            The tokens to reconstruct.
+            Shape of tokens of each session: (n_samples, n_channels).
+            concatenate : bool, optional
+            Whether to concatenate the reconstructed data over all sessions, by default False.
+        
+        Returns
+        -------
+        reconstructed_data : Union[np.ndarray, List[np.ndarray]]
+            The reconstructed data.
+            Shape of reconstructed data of each session: (n_samples, n_channels).
+
+        '''
+
         if isinstance(tokens, Data):
             tokens = tokens.time_series(concatenate=False)
 
         if not isinstance(tokens, list):
             tokens = [tokens]
+            list_inputted = False
+        else:
+            list_inputted = True
 
         def _reconstruct_data_per_session(t):
             x = self.vocab["bins_average"][t]
@@ -1017,9 +1071,13 @@ class MuTransformTokenizer:
                 argument_type="kwargs",
                 exception_behaviour="immediate",
             )
-
-        if concatenate or len(reconstructed_data) == 1:
+    
+        if concatenate or (isinstance(reconstructed_data, list) and len(reconstructed_data) == 1 and not list_inputted):
             reconstructed_data = np.concatenate(reconstructed_data)
+        
+        if list_inputted and not concatenate and not isinstance(reconstructed_data, list):
+            reconstructed_data = [reconstructed_data[0]]
+
         return reconstructed_data
 
     def get_pve(
@@ -1155,7 +1213,7 @@ class MuTransformTokenizer:
 
         # Get data reconstructed from tokens
         tokenized_data = self.tokenize_data(original_data)
-        fitted_data = self.reconstruct_data(tokenized_data)
+        fitted_data = self.reconstruct_data(tokenized_data)[0]
 
         # Plot data signals and token weights
         n_channels = min(original_data.shape[1], 3)  # number of channels to plot

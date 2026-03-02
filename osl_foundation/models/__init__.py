@@ -66,7 +66,9 @@ def load_model(
         Directory containing the saved model.
     checkpoint : str, optional
         Path to the checkpoint file. If `latest`, the latest checkpoint will be used.
-        Defaults to None, in which case the weights will be loaded from `weights.h5`.
+        Defaults to None, in which case the latest checkpoint in
+        `model_dir/checkpoints` will be used if present, otherwise
+        `model.weights.h5` is loaded.
     strategy : tf.distribute.Strategy, optional
         TensorFlow distribution strategy for distributed training.
         Defaults to None, in which case the config strategy will be used.
