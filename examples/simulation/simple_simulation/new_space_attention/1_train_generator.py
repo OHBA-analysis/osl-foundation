@@ -23,6 +23,8 @@ dev_dir = "/Users/woolrich/dev"
 # Set GPU memory growth
 tf_ops.gpu_growth()
 
+DISABLE_LYAPUNOV = True
+
 # ---------- Directories ---------- #
 
 data_dir = f"{dev_dir}/results/osl-foundation/simple_simulation/tokenized_data_tfrecords"
@@ -40,20 +42,20 @@ src_config = f"{config_dir}/config.yml"
 dst_config = f"{generator_dir}/config.yml"
 shutil.copy2(src_config, dst_config)
 
+with open(dst_config, "r") as f:
+    config_dict = yaml.safe_load(f)
+
 # Keep session label cardinality aligned with the actual tokenized sessions.
 tokenized_session_files = sorted(glob(f"{tokenized_data_dir}/x_*.npy"))
+updated = False
 if tokenized_session_files:
     n_sessions = len(tokenized_session_files)
     print(f"Detected {n_sessions} tokenized sessions in {tokenized_data_dir}.")
-    with open(dst_config, "r") as f:
-        config_dict = yaml.safe_load(f)
-
     extra_labels = (
         config_dict.get("model_config", {})
         .get("input_parameters", {})
         .get("extra_labels", [])
     )
-    updated = False
     for label_cfg in extra_labels:
         if label_cfg.get("name") == "session_id" and label_cfg.get("n_classes") != n_sessions:
             print(
@@ -63,11 +65,30 @@ if tokenized_session_files:
             label_cfg["n_classes"] = n_sessions
             updated = True
 
-    if updated:
-        with open(dst_config, "w") as f:
-            yaml.safe_dump(config_dict, f, sort_keys=False)
 else:
     print(f"No tokenized session files found in {tokenized_data_dir}.")
+
+if DISABLE_LYAPUNOV:
+    loss_parameters = config_dict.setdefault("model_config", {}).setdefault(
+        "loss_parameters", {}
+    )
+    loss_parameters["lyapunov_beta"] = 0.0
+    loss_parameters["lyapunov_mu"] = 0.0
+    loss_parameters["lyapunov_collapse_weight"] = 0.0
+    training_config = config_dict.setdefault("training_config", {})
+    removed_beta_scheduler = training_config.pop("lyapunov_beta_scheduler", None)
+    removed_mu_scheduler = training_config.pop("lyapunov_mu_scheduler", None)
+    updated = True
+    print(
+        "Lyapunov regularization disabled for training "
+        "(beta=0, mu=0, collapse_weight=0, schedulers removed)."
+    )
+    if removed_beta_scheduler is None and removed_mu_scheduler is None:
+        print("No Lyapunov scheduler blocks found in training config.")
+
+if updated:
+    with open(dst_config, "w") as f:
+        yaml.safe_dump(config_dict, f, sort_keys=False)
 
 checkpoint_files = glob(f"{generator_dir}/checkpoints/ckpt-*.index")
 weights_path = f"{generator_dir}/model.weights.h5"
@@ -77,6 +98,18 @@ if checkpoint_files or os.path.exists(weights_path):
 else:
     print("No saved model/checkpoint found. Creating a fresh model.")
     generator = create_model(dst_config)
+
+if DISABLE_LYAPUNOV:
+    generator.lyapunov_loss_layer.beta.assign(0.0)
+    generator.lyapunov_loss_layer.mu.assign(0.0)
+    generator.lyapunov_loss_layer.collapse_weight.assign(0.0)
+    print(
+        "Applied runtime Lyapunov disable: "
+        f"beta={float(generator.lyapunov_loss_layer.beta.numpy()):.6g}, "
+        f"mu={float(generator.lyapunov_loss_layer.mu.numpy()):.6g}, "
+        "collapse_weight="
+        f"{float(generator.lyapunov_loss_layer.collapse_weight.numpy()):.6g}"
+    )
 
 generator.summary(expand_nested=True)
 

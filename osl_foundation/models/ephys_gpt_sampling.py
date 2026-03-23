@@ -76,7 +76,7 @@ class EphysGPTSamplingMixin:
 
         return embeddings
 
-    @tf.function
+    @tf.function(reduce_retracing=True)
     def one_step_sample(
         self,
         inputs: list,
@@ -188,7 +188,9 @@ class EphysGPTSamplingMixin:
             and spectral_penalty_weight > 0.0
             and spectral_penalty_active is not None
             and spectral_window_samples is not None
+            and spectral_window_samples > 0
             and spectral_sampling_rate is not None
+            and spectral_sampling_rate > 0
         )
         if spectral_max_freq is None and spectral_sampling_rate is not None:
             spectral_max_freq = spectral_sampling_rate / 2.0
@@ -736,6 +738,13 @@ class EphysGPTSamplingMixin:
             )
             peakiness_run = np.zeros((batch_size,), dtype=np.int32)
             calibration_lyapunov = []
+            spectral_sampling_rate = float(sampling_rate)
+        else:
+            spectral_window_samples = 0
+            max_burst_windows = 0
+            peakiness_run = None
+            calibration_lyapunov = None
+            spectral_sampling_rate = 0.0
         if lyapunov_diagnostics:
             invalid_mask = np.zeros([batch_size, n_samples], dtype=bool)
             initial_invalid_mask = np.zeros([batch_size, n_samples], dtype=bool)
@@ -774,12 +783,12 @@ class EphysGPTSamplingMixin:
                 effective_weight = 0.0
 
             if spectral_penalty_intended and effective_weight > 0.0:
-                penalty_active = (peakiness_run >= max_burst_windows).astype(
+                penalty_active_np = (peakiness_run >= max_burst_windows).astype(
                     np.float32
                 )
-                penalty_active = tf.convert_to_tensor(penalty_active, dtype=tf.float32)
             else:
-                penalty_active = None
+                penalty_active_np = np.zeros((batch_size,), dtype=np.float32)
+            penalty_active = tf.convert_to_tensor(penalty_active_np, dtype=tf.float32)
 
             # Prediction logits for the next token
             if lyapunov_diagnostics:
@@ -801,8 +810,8 @@ class EphysGPTSamplingMixin:
                     lyapunov_adaptive_band,
                     effective_weight,
                     penalty_active,
-                    spectral_window_samples if spectral_penalty_intended else None,
-                    sampling_rate if spectral_penalty_intended else None,
+                    spectral_window_samples,
+                    spectral_sampling_rate,
                     spectral_min_freq,
                     spectral_max_freq,
                     spectral_peakiness_threshold,
@@ -822,8 +831,8 @@ class EphysGPTSamplingMixin:
                     lyapunov_adaptive_band,
                     effective_weight,
                     penalty_active,
-                    spectral_window_samples if spectral_penalty_intended else None,
-                    sampling_rate if spectral_penalty_intended else None,
+                    spectral_window_samples,
+                    spectral_sampling_rate,
                     spectral_min_freq,
                     spectral_max_freq,
                     spectral_peakiness_threshold,
@@ -861,7 +870,7 @@ class EphysGPTSamplingMixin:
                 window_tokens = generated_tokens[:, window_start:window_end, :]
                 spectral_peakiness_value = self._spectral_peakiness(
                     tf.convert_to_tensor(window_tokens, dtype=tf.int32),
-                    sampling_rate=sampling_rate,
+                    sampling_rate=spectral_sampling_rate,
                     min_freq=spectral_min_freq,
                     max_freq=spectral_max_freq or sampling_rate / 2.0,
                 ).numpy()

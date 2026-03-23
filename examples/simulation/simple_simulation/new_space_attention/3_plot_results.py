@@ -24,6 +24,8 @@ from osl_foundation.utils.plot_results_common import (
 
 tf_ops.gpu_growth()
 
+DISABLE_LYAPUNOV = True
+
 sampling_frequency = 100
 welch_n_jobs = 1  # Avoid multiprocessing spawn issues in top-level script execution.
 analysis_window_samples = 6000  # Match time_frequency.png and summary*.png windows.
@@ -41,8 +43,13 @@ os.makedirs(plot_dir, exist_ok=True)
 # ---------- Load data ---------- #
 
 generated_data = load_pickled_series(generator_dir, "generated_data")
-lyapunov_data = load_pickled_series(generator_dir, "lyapunov_data")
-lyapunov_diag_data = load_pickled_series(generator_dir, "lyapunov_diagnostics")
+if DISABLE_LYAPUNOV:
+    print("DISABLE_LYAPUNOV=True: skipping Lyapunov and spectral diagnostics plots.")
+    lyapunov_data = []
+    lyapunov_diag_data = []
+else:
+    lyapunov_data = load_pickled_series(generator_dir, "lyapunov_data")
+    lyapunov_diag_data = load_pickled_series(generator_dir, "lyapunov_diagnostics")
 
 def _first_diag_setting(diag_data, key, default=None):
     values = [
@@ -58,34 +65,35 @@ def _first_diag_setting(diag_data, key, default=None):
         print(f"Warning: {key} differs across sessions; using first value: {first}.")
     return first
 
-if lyapunov_diag_data:
+if not DISABLE_LYAPUNOV and lyapunov_diag_data:
     sampling_frequency = int(
         _first_diag_setting(lyapunov_diag_data, "sampling_rate", sampling_frequency)
     )
 
 # ---------- Plot lyapunov data ---------- #
 
-lyapunov_data = np.array(lyapunov_data)  # shape (n_sessions, n_timepoints)
-plt.figure()
-plt.plot(lyapunov_data[0, :2000], color="gray", alpha=0.5)
-plt.xlabel("Timepoints")
-plt.ylabel("Lyapunov exponent")
-plt.tight_layout()
-plt.savefig(f"{plot_dir}/lyapunov.png")
-plt.close()
+if not DISABLE_LYAPUNOV and lyapunov_data:
+    lyapunov_data = np.array(lyapunov_data)  # shape (n_sessions, n_timepoints)
+    plt.figure()
+    plt.plot(lyapunov_data[0, :2000], color="gray", alpha=0.5)
+    plt.xlabel("Timepoints")
+    plt.ylabel("Lyapunov exponent")
+    plt.tight_layout()
+    plt.savefig(f"{plot_dir}/lyapunov.png")
+    plt.close()
 
-# plot histogram of lyapunov exponents
-# print maximum lyapunov exponent
-print("Maximum lyapunov exponent: ", np.max(lyapunov_data))
-plt.figure()
-plt.hist(lyapunov_data.flatten(), bins=50, color="gray")
-plt.xlabel("Lyapunov exponent")
-plt.ylabel("Count")
-plt.tight_layout()
-plt.savefig(f"{plot_dir}/lyapunov_hist.png")
-plt.close() 
+    # plot histogram of lyapunov exponents
+    # print maximum lyapunov exponent
+    print("Maximum lyapunov exponent: ", np.max(lyapunov_data))
+    plt.figure()
+    plt.hist(lyapunov_data.flatten(), bins=50, color="gray")
+    plt.xlabel("Lyapunov exponent")
+    plt.ylabel("Count")
+    plt.tight_layout()
+    plt.savefig(f"{plot_dir}/lyapunov_hist.png")
+    plt.close() 
 
-if lyapunov_diag_data:
+if not DISABLE_LYAPUNOV and lyapunov_diag_data:
     diag_plot_dir = f"{plot_dir}/lyapunov_diagnostics"
     os.makedirs(diag_plot_dir, exist_ok=True)
 

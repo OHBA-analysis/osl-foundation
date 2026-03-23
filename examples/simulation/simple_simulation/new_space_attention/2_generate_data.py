@@ -17,6 +17,9 @@ tf_ops.gpu_growth()
 
 set_random_seed(42)
 
+DISABLE_LYAPUNOV = True
+DISABLE_SPECTRAL_BURST_CONSTRAINTS = True
+
 sample_frequency = 100
 spectral_penalty_weight = 0.003
 spectral_penalty_normalize = True
@@ -29,6 +32,10 @@ spectral_penalty_target_frac = 0.05
 spectral_penalty_calibrate_steps = 200
 burst_window_s = 1
 max_burst_s = 4
+
+if DISABLE_SPECTRAL_BURST_CONSTRAINTS:
+    spectral_penalty_weight = 0.0
+    spectral_penalty_auto_weight = False
 # When auto weight is enabled, spectral_penalty_weight below is treated as a fallback.
 # With the normalized + capped penalty, 0.005 is a good starting point.
 # Stronger: 0.008–0.01. Weaker: 0.002–0.003.
@@ -47,6 +54,13 @@ except Exception as e:
     generator = load_model(generator_dir)
 
 # ---------- Generate data using the generator ---------- #
+if DISABLE_LYAPUNOV:
+    print("Lyapunov + spectral penalties disabled for generation.")
+    print(
+        "Note: existing lyapunov_diagnostics_*.pkl files from older runs are left unchanged."
+    )
+elif DISABLE_SPECTRAL_BURST_CONSTRAINTS:
+    print("Spectral burst constraints disabled for generation.")
 
 n_sessions = 6
 session_labels = np.arange(n_sessions)
@@ -55,37 +69,73 @@ generation_batch_size = 3
 # Generate and save in chunks to keep peak memory usage bounded.
 for start in range(0, n_sessions, generation_batch_size):
     labels_chunk = session_labels[start : start + generation_batch_size]
-    generated_data, lyapunov_data, lyapunov_diagnostics = generator.generate_data(
+    generate_kwargs = dict(
         n_samples=2 * 60 * sample_frequency,
         top_p=0.99,
         batch_size=len(labels_chunk),
         extra_labels={"session_id": labels_chunk.astype(np.int32)},
         temperature=1,
-        # Low-intrusion Lyapunov-on generation settings.
-        lyapunov_margin=0.05,
-        lyapunov_adaptive_margin=False,
-        lyapunov_margin_quantile=0.9,
-        lyapunov_margin_window=500,
-        lyapunov_margin_min=1e-4,
-        lyapunov_margin_max=5e-2,
-        lyapunov_rollout_horizon=1,
-        lyapunov_adaptive_rollout=False,
-        lyapunov_adaptive_band=2e-4,
-        lyapunov_diagnostics=True,
-        # Adaptive dominant-band penalty with persistence gate (band-agnostic).
-        spectral_penalty_weight=spectral_penalty_weight,
-        sampling_rate=sample_frequency,
-        burst_window_s=burst_window_s,
-        max_burst_s=max_burst_s,
-        spectral_penalty_normalize=spectral_penalty_normalize,
-        spectral_penalty_cap=spectral_penalty_cap,
-        spectral_peakiness_threshold=spectral_peakiness_threshold,
-        spectral_min_freq=spectral_min_freq,
-        spectral_max_freq=spectral_max_freq,
-        spectral_penalty_auto_weight=spectral_penalty_auto_weight,
-        spectral_penalty_target_frac=spectral_penalty_target_frac,
-        spectral_penalty_calibrate_steps=spectral_penalty_calibrate_steps,
     )
+    if DISABLE_LYAPUNOV:
+        generate_kwargs.update(
+            {
+                "lyapunov_margin": np.inf,
+                "lyapunov_adaptive_margin": False,
+                "lyapunov_rollout_horizon": 1,
+                "lyapunov_adaptive_rollout": False,
+                "lyapunov_adaptive_band": 0.0,
+                "lyapunov_diagnostics": False,
+                "spectral_penalty_weight": 0.0,
+                "spectral_penalty_auto_weight": False,
+            }
+        )
+    else:
+        generate_kwargs.update(
+            {
+                # Lyapunov generation settings.
+                "lyapunov_margin": 0.05,
+                "lyapunov_adaptive_margin": False,
+                "lyapunov_margin_quantile": 0.9,
+                "lyapunov_margin_window": 500,
+                "lyapunov_margin_min": 1e-4,
+                "lyapunov_margin_max": 5e-2,
+                "lyapunov_rollout_horizon": 1,
+                "lyapunov_adaptive_rollout": False,
+                "lyapunov_adaptive_band": 2e-4,
+                "lyapunov_diagnostics": True,
+            }
+        )
+        if DISABLE_SPECTRAL_BURST_CONSTRAINTS:
+            generate_kwargs.update(
+                {
+                    "spectral_penalty_weight": 0.0,
+                    "spectral_penalty_auto_weight": False,
+                }
+            )
+        else:
+            generate_kwargs.update(
+                {
+                    "spectral_penalty_weight": spectral_penalty_weight,
+                    "sampling_rate": sample_frequency,
+                    "burst_window_s": burst_window_s,
+                    "max_burst_s": max_burst_s,
+                    "spectral_penalty_normalize": spectral_penalty_normalize,
+                    "spectral_penalty_cap": spectral_penalty_cap,
+                    "spectral_peakiness_threshold": spectral_peakiness_threshold,
+                    "spectral_min_freq": spectral_min_freq,
+                    "spectral_max_freq": spectral_max_freq,
+                    "spectral_penalty_auto_weight": spectral_penalty_auto_weight,
+                    "spectral_penalty_target_frac": spectral_penalty_target_frac,
+                    "spectral_penalty_calibrate_steps": spectral_penalty_calibrate_steps,
+                }
+            )
+
+    generated = generator.generate_data(**generate_kwargs)
+    if len(generated) == 3:
+        generated_data, lyapunov_data, lyapunov_diagnostics = generated
+    else:
+        generated_data, lyapunov_data = generated
+        lyapunov_diagnostics = None
 
     def _safe_session_value(diag, key, idx):
         if key not in diag:
@@ -107,56 +157,57 @@ for start in range(0, n_sessions, generation_batch_size):
             pickle.dump(generated_data[i], f)
         with open(f"{generator_dir}/lyapunov_data_{label}.pkl", "wb") as f:
             pickle.dump(lyapunov_data[i], f)
-        with open(f"{generator_dir}/lyapunov_diagnostics_{label}.pkl", "wb") as f:
-            pickle.dump(
-                {
-                    "lyapunov_margin": lyapunov_diagnostics["lyapunov_margin"],
-                    "lyapunov_adaptive_margin": lyapunov_diagnostics["lyapunov_adaptive_margin"],
-                    "lyapunov_margin_quantile": lyapunov_diagnostics["lyapunov_margin_quantile"],
-                    "lyapunov_margin_window": lyapunov_diagnostics["lyapunov_margin_window"],
-                    "lyapunov_margin_min": lyapunov_diagnostics["lyapunov_margin_min"],
-                    "lyapunov_margin_max": lyapunov_diagnostics["lyapunov_margin_max"],
-                    "lyapunov_rollout_horizon": lyapunov_diagnostics["lyapunov_rollout_horizon"],
-                    "lyapunov_adaptive_rollout": lyapunov_diagnostics["lyapunov_adaptive_rollout"],
-                    "lyapunov_adaptive_band": lyapunov_diagnostics["lyapunov_adaptive_band"],
-                    "spectral_peakiness": _safe_session_value(lyapunov_diagnostics, "spectral_peakiness", i),
-                    "spectral_penalty_active": _safe_session_value(lyapunov_diagnostics, "spectral_penalty_active", i),
-                    "spectral_penalty_weight": _safe_session_value(lyapunov_diagnostics, "spectral_penalty_weight", i),
-                    "spectral_penalty_value": _safe_session_value(lyapunov_diagnostics, "spectral_penalty_value", i),
-                    "spectral_penalty_threshold": lyapunov_diagnostics.get("spectral_penalty_threshold", None),
-                    "spectral_penalty_cap": lyapunov_diagnostics.get("spectral_penalty_cap", None),
-                    "spectral_penalty_normalize": lyapunov_diagnostics.get("spectral_penalty_normalize", None),
-                    "spectral_penalty_calibrate_steps": lyapunov_diagnostics.get("spectral_penalty_calibrate_steps", None),
-                    "spectral_penalty_settings": {
-                        "spectral_penalty_weight": spectral_penalty_weight,
-                        "spectral_penalty_normalize": spectral_penalty_normalize,
-                        "spectral_penalty_cap": spectral_penalty_cap,
-                        "spectral_peakiness_threshold": spectral_peakiness_threshold,
-                        "spectral_min_freq": spectral_min_freq,
-                        "spectral_max_freq": spectral_max_freq,
-                        "spectral_penalty_auto_weight": spectral_penalty_auto_weight,
-                        "spectral_penalty_target_frac": spectral_penalty_target_frac,
-                        "spectral_penalty_calibrate_steps": spectral_penalty_calibrate_steps,
+        if lyapunov_diagnostics is not None:
+            with open(f"{generator_dir}/lyapunov_diagnostics_{label}.pkl", "wb") as f:
+                pickle.dump(
+                    {
+                        "lyapunov_margin": lyapunov_diagnostics["lyapunov_margin"],
+                        "lyapunov_adaptive_margin": lyapunov_diagnostics["lyapunov_adaptive_margin"],
+                        "lyapunov_margin_quantile": lyapunov_diagnostics["lyapunov_margin_quantile"],
+                        "lyapunov_margin_window": lyapunov_diagnostics["lyapunov_margin_window"],
+                        "lyapunov_margin_min": lyapunov_diagnostics["lyapunov_margin_min"],
+                        "lyapunov_margin_max": lyapunov_diagnostics["lyapunov_margin_max"],
+                        "lyapunov_rollout_horizon": lyapunov_diagnostics["lyapunov_rollout_horizon"],
+                        "lyapunov_adaptive_rollout": lyapunov_diagnostics["lyapunov_adaptive_rollout"],
+                        "lyapunov_adaptive_band": lyapunov_diagnostics["lyapunov_adaptive_band"],
+                        "spectral_peakiness": _safe_session_value(lyapunov_diagnostics, "spectral_peakiness", i),
+                        "spectral_penalty_active": _safe_session_value(lyapunov_diagnostics, "spectral_penalty_active", i),
+                        "spectral_penalty_weight": _safe_session_value(lyapunov_diagnostics, "spectral_penalty_weight", i),
+                        "spectral_penalty_value": _safe_session_value(lyapunov_diagnostics, "spectral_penalty_value", i),
+                        "spectral_penalty_threshold": lyapunov_diagnostics.get("spectral_penalty_threshold", None),
+                        "spectral_penalty_cap": lyapunov_diagnostics.get("spectral_penalty_cap", None),
+                        "spectral_penalty_normalize": lyapunov_diagnostics.get("spectral_penalty_normalize", None),
+                        "spectral_penalty_calibrate_steps": lyapunov_diagnostics.get("spectral_penalty_calibrate_steps", None),
+                        "spectral_penalty_settings": {
+                            "spectral_penalty_weight": spectral_penalty_weight,
+                            "spectral_penalty_normalize": spectral_penalty_normalize,
+                            "spectral_penalty_cap": spectral_penalty_cap,
+                            "spectral_peakiness_threshold": spectral_peakiness_threshold,
+                            "spectral_min_freq": spectral_min_freq,
+                            "spectral_max_freq": spectral_max_freq,
+                            "spectral_penalty_auto_weight": spectral_penalty_auto_weight,
+                            "spectral_penalty_target_frac": spectral_penalty_target_frac,
+                            "spectral_penalty_calibrate_steps": spectral_penalty_calibrate_steps,
+                            "sampling_rate": sample_frequency,
+                            "burst_window_s": burst_window_s,
+                            "max_burst_s": max_burst_s,
+                        },
                         "sampling_rate": sample_frequency,
                         "burst_window_s": burst_window_s,
                         "max_burst_s": max_burst_s,
-                    },n
-                    "sampling_rate": sample_frequency,
-                    "burst_window_s": burst_window_s,
-                    "max_burst_s": max_burst_s,
-                    "max_attempts": lyapunov_diagnostics["max_attempts"],
-                    "invalid_mask": lyapunov_diagnostics["invalid_mask"][i],
-                    "initial_invalid_mask": lyapunov_diagnostics["initial_invalid_mask"][i],
-                    "attempts_used": lyapunov_diagnostics["attempts_used"][i],
-                    "rejection_count": lyapunov_diagnostics["rejection_count"][i],
-                    "margin_used": lyapunov_diagnostics["margin_used"][i],
-                    "final_margin": lyapunov_diagnostics["final_margin_per_session"][i],
-                    "final_invalid_rate": lyapunov_diagnostics["final_invalid_rate_per_session"][i],
-                    "initial_invalid_rate": lyapunov_diagnostics["initial_invalid_rate_per_session"][i],
-                    "mean_attempts": lyapunov_diagnostics["mean_attempts_per_session"][i],
-                },
-                f,
-            )
+                        "max_attempts": lyapunov_diagnostics["max_attempts"],
+                        "invalid_mask": lyapunov_diagnostics["invalid_mask"][i],
+                        "initial_invalid_mask": lyapunov_diagnostics["initial_invalid_mask"][i],
+                        "attempts_used": lyapunov_diagnostics["attempts_used"][i],
+                        "rejection_count": lyapunov_diagnostics["rejection_count"][i],
+                        "margin_used": lyapunov_diagnostics["margin_used"][i],
+                        "final_margin": lyapunov_diagnostics["final_margin_per_session"][i],
+                        "final_invalid_rate": lyapunov_diagnostics["final_invalid_rate_per_session"][i],
+                        "initial_invalid_rate": lyapunov_diagnostics["initial_invalid_rate_per_session"][i],
+                        "mean_attempts": lyapunov_diagnostics["mean_attempts_per_session"][i],
+                    },
+                    f,
+                )
 
     # Drop chunk outputs promptly to keep peak memory bounded.
     del generated_data, lyapunov_data, lyapunov_diagnostics

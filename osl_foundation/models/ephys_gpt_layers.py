@@ -304,14 +304,43 @@ class LyapunovLossLayer(keras.layers.Layer):
         loss = core_loss + self.mu * v0_loss + self.collapse_weight * collapse_loss
         loss *= self.beta
 
+        lyapunov_disabled = tf.logical_and(
+            tf.equal(self.beta, 0.0),
+            tf.logical_and(
+                tf.equal(self.mu, 0.0),
+                tf.equal(self.collapse_weight, 0.0),
+            ),
+        )
+        core_loss_for_metrics = tf.where(
+            lyapunov_disabled, tf.zeros_like(core_loss), core_loss
+        )
+        v0_loss_for_metrics = tf.where(
+            lyapunov_disabled, tf.zeros_like(v0_loss), v0_loss
+        )
+        collapse_loss_for_metrics = tf.where(
+            lyapunov_disabled, tf.zeros_like(collapse_loss), collapse_loss
+        )
+        collapse_ratio_for_metrics = tf.where(
+            lyapunov_disabled, tf.zeros_like(collapse_ratio), collapse_ratio
+        )
+        v_var_for_metrics = tf.where(
+            lyapunov_disabled, tf.zeros_like(v_var), v_var
+        )
+        v_mean_for_metrics = tf.where(
+            lyapunov_disabled, tf.zeros_like(v_mean), v_mean
+        )
+        mu_for_metrics = tf.where(
+            lyapunov_disabled, tf.zeros_like(self.mu), self.mu
+        )
+
         self.loss_tracker.update_state(loss) 
-        self.core_loss_tracker.update_state(core_loss)
-        self.v0_loss_tracker.update_state(v0_loss)
-        self.mu_tracker.update_state(self.mu)
-        self.collapse_loss_tracker.update_state(collapse_loss)
-        self.collapse_ratio_tracker.update_state(collapse_ratio)
-        self.v_var_tracker.update_state(v_var)
-        self.v_mean_tracker.update_state(v_mean)
+        self.core_loss_tracker.update_state(core_loss_for_metrics)
+        self.v0_loss_tracker.update_state(v0_loss_for_metrics)
+        self.mu_tracker.update_state(mu_for_metrics)
+        self.collapse_loss_tracker.update_state(collapse_loss_for_metrics)
+        self.collapse_ratio_tracker.update_state(collapse_ratio_for_metrics)
+        self.v_var_tracker.update_state(v_var_for_metrics)
+        self.v_mean_tracker.update_state(v_mean_for_metrics)
 
         self.add_loss(loss)
 
@@ -712,8 +741,6 @@ class DecoderLayer(keras.Model):
 
         # ongoing_shape = (batch_size, output_seqlens, n_channels, model_dim)
 
-        
-
         self.normalization_layer_time2.build(ongoing_shape)
         self.feed_forward_layer_time.build(ongoing_shape)
         
@@ -1007,4 +1034,3 @@ class TransformerDecoder(keras.layers.Layer):
         # x.shape = (batch_size, len_out, n_channels, model_dim)
 
         return x
-
