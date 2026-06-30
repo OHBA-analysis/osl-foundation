@@ -1,11 +1,11 @@
 # OHBA Software Library: Foundation Model Toolbox
 
-This repository contains a TensorFlow-based tokeniser and foundation model (MEG-GPT) for parcellated MEG data. Note, a PyTorch version of the tokeniser and foundation model is currently under development:
+This repository contains a **TensorFlow-based** tokeniser and foundation model (MEG-GPT) for parcellated MEG data. Note, a PyTorch version of the tokeniser and foundation model is currently under development:
 
 - https://github.com/OHBA-analysis/EphysTokenizer
-- https://github.com/OHBA-analysis/EphysGPT
+- https://github.com/OHBA-analysis/MEG-GPT
 
-Preprint: https://arxiv.org/abs/2510.18080.
+Paper: https://direct.mit.edu/imag/article/doi/10.1162/IMAG.a.1301/137369/MEG-GPT-A-transformer-based-foundation-model-for
 
 ## Installation
 
@@ -48,19 +48,18 @@ module load cuDNN/8.4.1.50-CUDA-11.7.0
 
 See the [examples](https://github.com/OHBA-analysis/osl-foundation/tree/main/examples) directory.
 
-#### Load the pre-trained models (tokenizer, MEG-GPT)
+#### Load the pre-trained models
 
-First download the model weights (which are hosted on [Hugging Face](https://huggingface.co/OHBA-analysis/MEG-GPT/tree/main)):
-```
-git clone https://huggingface.co/OHBA-analysis/MEG-GPT models
-cd models
-git lfs install --local
-git lfs pull
-```
-Then the models can be loaded with:
+Tokenizer:
 ```
 from osl_foundation import load_model
 
-tokenizer = load_model("tokenizer")
-meg_gpt = load_model("meg-gpt", checkpoint="latest")
+tokenizer = load_model("/path/to/osl-foundation/models/tokenizer")
+```
+
+MEG-GPT model:
+```
+from osl_foundation import load_model
+
+meg_gpt = load_model("/path/to/osl-foundation/models/meg-gpt", checkpoint="latest")
 ```

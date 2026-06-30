@@ -2,6 +2,7 @@ from abc import abstractmethod
 from typing import Union, List, Tuple
 import logging
 
+import os
 import pickle
 import numpy as np
 import tensorflow as tf
@@ -345,6 +346,19 @@ class BaseModel:
             Loaded model.
         """
         config = cls.load_config(dirname)
+
+        # Resolve relative paths in the config (e.g. tokenizer_path) against the
+        # model directory so the model can be loaded from any working directory.
+        # Paths are stored relative to the model directory in config.yml.
+        for path_attr in ("tokenizer_path", "pretrained_model_path"):
+            path = getattr(config.model_config, path_attr, None)
+            if path is not None and not os.path.isabs(path):
+                setattr(
+                    config.model_config,
+                    path_attr,
+                    os.path.normpath(os.path.join(dirname, path)),
+                )
+
         model = cls(config, strategy=strategy)
         if checkpoint:
             cp = tf.train.Checkpoint(model=model.model, optimizer=model.model.optimizer)

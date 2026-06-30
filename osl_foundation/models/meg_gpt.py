@@ -1,5 +1,5 @@
-from typing import List, Union, Dict
 import logging
+from typing import List, Union, Dict
 
 import tensorflow as tf
 import numpy as np
