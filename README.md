@@ -2,10 +2,10 @@
 
 This repository contains a **TensorFlow-based** tokeniser and foundation model (MEG-GPT) for parcellated MEG data. Note, a PyTorch version of the tokeniser and foundation model is currently under development:
 
-- https://github.com/OHBA-analysis/EphysTokenizer
-- https://github.com/OHBA-analysis/MEG-GPT
+- [EphysTokenizer](https://github.com/OHBA-analysis/EphysTokenizer)
+- [MEG-GPT](https://github.com/OHBA-analysis/MEG-GPT)
 
-Paper: https://direct.mit.edu/imag/article/doi/10.1162/IMAG.a.1301/137369/MEG-GPT-A-transformer-based-foundation-model-for
+Paper: [MEG-GPT: A transformer-based foundation model for magnetoencephalography data](https://direct.mit.edu/imag/article/doi/10.1162/IMAG.a.1301/137369/MEG-GPT-A-transformer-based-foundation-model-for).
 
 ## Installation
 
@@ -23,7 +23,7 @@ mamba env create -f envs/oslf.yml
 conda activate oslf
 pip install -e .
 ```
-Note, MEG-GPT requires TensorFlow 2.11 and comes with [osl-dynamics](https://github.com/OHBA-analysis/osl-dynamics) (v2.1.8).
+Note, MEG-GPT requires TensorFlow 2.11 and comes with [osl-dynamics](https://github.com/OHBA-analysis/osl-dynamics).
 
 #### BMRC Cluster (Oxford)
 
